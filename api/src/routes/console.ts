@@ -55,6 +55,28 @@ router.get('/summary', async (_req, res) => {
             = to_char(now() AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM-DD')
     `);
 
+    // Umur tagihan REVIEW tertua: dipakai kartu "butuh tindakan" supaya terlihat sejak kapan uang
+    // pembeli tertahan. Dihitung dari createdAt, bukan paidAt (belum lunas).
+    const [tertua]: any = await pool.query(
+      `SELECT MIN(createdat) AS tertua FROM pay_charges WHERE status = 'REVIEW'`,
+    );
+
+    // Ringkasan per aplikasi. Hanya baris PAID yang dijumlahkan supaya "nilai" berarti uang masuk,
+    // bukan potensi. Alias dikutip agar tidak diterjemahkan peta COLUMN_CASE.
+    const [perApp]: any = await pool.query(`
+      SELECT c.appCode AS "appCode",
+             COALESCE(a.name, c.appCode) AS "nama",
+             COUNT(*) AS "jumlah",
+             COUNT(*) FILTER (WHERE c.status = 'PAID') AS "lunas",
+             COALESCE(SUM(c.amount) FILTER (WHERE c.status = 'PAID'), 0) AS "nilai",
+             COALESCE(SUM(c.fee) FILTER (WHERE c.status = 'PAID'), 0) AS "biaya",
+             COALESCE(SUM(c.net) FILTER (WHERE c.status = 'PAID'), 0) AS "net"
+      FROM pay_charges c
+      LEFT JOIN pay_apps a ON a.code = c.appCode
+      GROUP BY c.appCode, a.name
+      ORDER BY "nilai" DESC, c.appCode ASC
+    `);
+
     const [apps]: any = await pool.query(`
       SELECT COUNT(*) AS jumlah,
              COUNT(*) FILTER (WHERE status = 'ACTIVE') AS aktif,
@@ -100,6 +122,8 @@ router.get('/summary', async (_req, res) => {
       deliveries: deliveries?.[0] || {},
       perStatus: perStatus || [],
       tren: tren || [],
+      perApp: perApp || [],
+      tindakan: { tertua: tertua?.[0]?.tertua || null },
     });
   } catch (e: any) {
     console.error('[console] summary gagal:', e?.message || e);
@@ -119,8 +143,15 @@ router.get('/charges', async (req, res) => {
     const where: string[] = [];
     const args: any[] = [];
     if (status && status !== 'ALL') {
-      where.push('status = ?');
-      args.push(status);
+      // 'GAGAL' adalah saringan gabungan untuk satu pertanyaan: "uang mana yang tidak jadi masuk?".
+      // Ketiga status ini beda arti (kedaluwarsa, ditolak gateway, bukti ditolak operator) tetapi
+      // sama-sama tidak menghasilkan uang.
+      if (status === 'GAGAL') {
+        where.push(`status IN ('EXPIRED', 'FAILED', 'REJECTED')`);
+      } else {
+        where.push('status = ?');
+        args.push(status);
+      }
     }
     if (app && app !== 'ALL') {
       where.push('appCode = ?');

@@ -12,6 +12,8 @@ export type Ringkasan = {
   deliveries: { jumlah: number; terkirim: number; mati: number; menunggu: number };
   perStatus: { status: Status; jumlah: number; nilai: number }[];
   tren: { hari: string; jumlah: number; paid: number; nilai: number }[];
+  perApp: { appCode: string; nama: string; jumlah: number; lunas: number; nilai: number; biaya: number; net: number }[];
+  tindakan: { tertua: string | null };
 };
 
 export type Charge = {

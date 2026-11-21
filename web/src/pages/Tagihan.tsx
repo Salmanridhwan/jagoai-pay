@@ -5,7 +5,18 @@ import { Check, ExternalLink, Search, X } from 'lucide-react';
 import { api, ApiError, rupiah, waktu, type Charge } from '../api';
 import { Chip, Panel } from '../components/ui';
 
-const STATUS = ['semua', 'PENDING', 'REVIEW', 'PAID', 'EXPIRED', 'FAILED', 'REJECTED'];
+// 'GAGAL' bukan status di database: API menerjemahkannya jadi EXPIRED+FAILED+REJECTED, dipakai tautan
+// dari kartu "Uang bocor" di Dashboard supaya satu klik memuat semua tagihan yang tidak jadi uang.
+const STATUS: [string, string][] = [
+  ['semua', 'semua status'],
+  ['PENDING', 'PENDING'],
+  ['REVIEW', 'REVIEW'],
+  ['PAID', 'PAID'],
+  ['GAGAL', 'gagal (expired + failed + rejected)'],
+  ['EXPIRED', 'EXPIRED'],
+  ['FAILED', 'FAILED'],
+  ['REJECTED', 'REJECTED'],
+];
 const HALAMAN = 25;
 
 export function Tagihan() {
@@ -99,9 +110,9 @@ export function Tagihan() {
             </span>
             <span className="field">
               <select value={status} onChange={(e) => ubahStatus(e.target.value)} aria-label="Saring status">
-                {STATUS.map((s) => (
-                  <option key={s} value={s}>
-                    {s === 'semua' ? 'semua status' : s}
+                {STATUS.map(([nilai, label]) => (
+                  <option key={nilai} value={nilai}>
+                    {label}
                   </option>
                 ))}
               </select>

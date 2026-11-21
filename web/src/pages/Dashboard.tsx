@@ -12,6 +12,22 @@ const WARNA_STATUS: Record<string, string> = {
   REJECTED: 'var(--danger)',
 };
 
+// Tiga status ini beda arti tetapi sama-sama berarti uang tidak masuk. Digabung hanya untuk kartu
+// "Uang bocor" dan tautan ?status=GAGAL; di daftar tagihan statusnya tetap tampil apa adanya.
+const GAGAL = ['EXPIRED', 'FAILED', 'REJECTED'];
+
+// "Tertua 3 hari" lebih berguna daripada jam pasti: yang perlu ditindak adalah sejak kapan uang
+// pembeli tertahan, bukan detiknya.
+function umur(iso: string | null): string {
+  if (!iso) return '';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  const jam = Math.floor(ms / 3_600_000);
+  if (jam < 1) return 'baru masuk';
+  if (jam < 24) return `${jam} jam`;
+  return `${Math.floor(jam / 24)} hari`;
+}
+
 export function Dashboard() {
   const nav = useNavigate();
   const ringkas = useQuery({ queryKey: ['ringkasan'], queryFn: api.ringkasan });
@@ -29,6 +45,16 @@ export function Dashboard() {
   const lunas = d.perStatus.find((s) => s.status === 'PAID');
   const review = d.perStatus.find((s) => s.status === 'REVIEW');
   const rasioLunas = d.total.jumlah > 0 ? Math.round((d.total.jumlahpaid / d.total.jumlah) * 100) : 0;
+  const bocorRows = d.perStatus.filter((s) => GAGAL.includes(s.status));
+  const bocorJumlah = bocorRows.reduce((n, s) => n + Number(s.jumlah || 0), 0);
+  const bocorNilai = bocorRows.reduce((n, s) => n + Number(s.nilai || 0), 0);
+  const bocorRincian = bocorRows.map((s) => `${s.status} ${s.jumlah}`).join(' · ');
+  const umurTertua = umur(d.tindakan?.tertua ?? null);
+  const perApp = d.perApp || [];
+  const totalApp = perApp.reduce(
+    (t, a) => ({ jumlah: t.jumlah + Number(a.jumlah || 0), lunas: t.lunas + Number(a.lunas || 0), biaya: t.biaya + Number(a.biaya || 0) }),
+    { jumlah: 0, lunas: 0, biaya: 0 },
+  );
 
   return (
     <>
@@ -61,16 +87,30 @@ export function Dashboard() {
           kaki={`${d.hariIni.jumlah} tagihan dibayar`}
         />
         <Kpi
-          label="Menunggu keputusan"
-          nilai={rupiah(review?.nilai || 0)}
-          nada="warn"
-          kaki={`${review?.jumlah || 0} bukti transfer perlu diperiksa`}
-        />
-        <Kpi
           label="Rasio lunas"
           nilai={`${rasioLunas}%`}
           kaki={`${d.total.jumlahpaid} dari ${d.total.jumlah} tagihan`}
         />
+        <Link className="kpi-link" to="/tagihan?status=REVIEW">
+          <Kpi
+            label="Butuh tindakan"
+            nilai={`${Number(review?.jumlah || 0)} tagihan`}
+            nada="warn"
+            kaki={
+              Number(review?.jumlah || 0) > 0
+                ? `${rupiah(review?.nilai || 0)} tertahan${umurTertua ? ` · tertua ${umurTertua}` : ''}`
+                : 'tidak ada bukti menunggu'
+            }
+          />
+        </Link>
+        <Link className="kpi-link" to="/tagihan?status=GAGAL">
+          <Kpi
+            label="Uang bocor"
+            nilai={rupiah(bocorNilai)}
+            nada="warn"
+            kaki={bocorJumlah > 0 ? `${bocorJumlah} tagihan · ${bocorRincian}` : 'tidak ada tagihan gagal'}
+          />
+        </Link>
       </div>
 
       <div className="split">
@@ -128,6 +168,56 @@ export function Dashboard() {
           </div>
         </Panel>
       </div>
+
+      <Panel judul="Per aplikasi" petunjuk="hanya tagihan lunas yang dihitung" padat={false}>
+        <div className="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Aplikasi</th>
+                <th style={{ textAlign: 'right' }}>Tagihan</th>
+                <th style={{ textAlign: 'right' }}>Lunas</th>
+                <th style={{ textAlign: 'right' }}>Nilai</th>
+                <th style={{ textAlign: 'right' }}>Biaya</th>
+                <th style={{ textAlign: 'right' }}>Net</th>
+              </tr>
+            </thead>
+            <tbody>
+              {perApp.map((a) => {
+                const jumlahApp = Number(a.jumlah || 0);
+                const lunasApp = Number(a.lunas || 0);
+                const rasioApp = jumlahApp > 0 ? Math.round((lunasApp / jumlahApp) * 100) : 0;
+                return (
+                  <tr key={a.appCode}>
+                    <td>
+                      <span className="id">{a.appCode}</span>
+                      <div style={{ color: 'var(--muted)', fontSize: 11 }}>{a.nama}</div>
+                    </td>
+                    <td className="num" style={{ textAlign: 'right' }}>{jumlahApp}</td>
+                    <td className="num" style={{ textAlign: 'right' }}>
+                      {lunasApp}{' '}
+                      <span style={{ color: 'var(--muted)', fontSize: 11 }}>({rasioApp}%)</span>
+                    </td>
+                    <td className="num" style={{ textAlign: 'right' }}>{rupiah(a.nilai)}</td>
+                    <td className="num" style={{ textAlign: 'right', color: 'var(--muted)' }}>{rupiah(a.biaya)}</td>
+                    <td className="num" style={{ textAlign: 'right' }}>{rupiah(a.net)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td className="strong">Total</td>
+                <td className="num" style={{ textAlign: 'right' }}>{totalApp.jumlah}</td>
+                <td className="num" style={{ textAlign: 'right' }}>{totalApp.lunas}</td>
+                <td className="num" style={{ textAlign: 'right' }}>{rupiah(d.total.nilaipaid)}</td>
+                <td className="num" style={{ textAlign: 'right', color: 'var(--muted)' }}>{rupiah(totalApp.biaya)}</td>
+                <td className="num" style={{ textAlign: 'right' }}>{rupiah(d.total.netpaid)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </Panel>
 
       <div className="split">
         <Panel
