@@ -45,10 +45,7 @@ export function Aplikasi() {
       <div className="page__head">
         <div>
           <h1 className="page__title">Aplikasi</h1>
-          <p className="page__sub">
-            Setiap aplikasi punya kuncinya sendiri, daftar channel yang diizinkan, dan URL webhook tujuan. Kunci
-            hanya ditampilkan sekali saat dibuat atau diputar.
-          </p>
+          <p className="page__sub">Kunci API, channel, dan URL webhook tiap aplikasi.</p>
         </div>
       </div>
 

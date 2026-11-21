@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { Activity, AppWindow, LogOut, Receipt, Webhook } from 'lucide-react';
+import { Activity, AppWindow, BookOpen, LogOut, Receipt, Webhook } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { Saya } from '../api';
 
@@ -8,6 +8,7 @@ const MENU = [
   { ke: '/tagihan', label: 'Tagihan', ikon: Receipt },
   { ke: '/aplikasi', label: 'Aplikasi', ikon: AppWindow },
   { ke: '/webhook', label: 'Webhook', ikon: Webhook },
+  { ke: '/doks', label: 'Doks', ikon: BookOpen },
 ];
 
 const JEJAK: Record<string, string> = {
@@ -15,6 +16,7 @@ const JEJAK: Record<string, string> = {
   '/tagihan': 'Tagihan',
   '/aplikasi': 'Aplikasi',
   '/webhook': 'Webhook',
+  '/doks': 'Doks',
 };
 
 export type Gerbang = { gatewaySiap: boolean; alamatApi: string };

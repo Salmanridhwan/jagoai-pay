@@ -35,10 +35,7 @@ export function Ikhtisar() {
       <div className="page__head">
         <div>
           <h1 className="page__title">Ikhtisar</h1>
-          <p className="page__sub">
-            Uang yang sudah masuk, yang menunggu keputusan, dan yang gagal dikirim ke aplikasi. Angka dihitung
-            langsung dari tabel tagihan — bukan salinan.
-          </p>
+          <p className="page__sub">Uang masuk, tagihan menunggu, dan event yang gagal.</p>
         </div>
         <div className="toolbar">
           <button className="btn btn--ghost" onClick={() => ringkas.refetch()}>

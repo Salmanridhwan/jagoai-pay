@@ -8,13 +8,14 @@ import { Ikhtisar } from './pages/Ikhtisar';
 import { Tagihan } from './pages/Tagihan';
 import { Aplikasi } from './pages/Aplikasi';
 import { Webhook } from './pages/Webhook';
+import { Doks } from './pages/Doks';
 import { Bayar } from './pages/Bayar';
 
 export default function App() {
   const qc = useQueryClient();
   const nav = useNavigate();
   const lokasi = useLocation();
-  const publik = lokasi.pathname.startsWith('/bayar/');
+  const publik = lokasi.pathname.startsWith('/bayar/') || lokasi.pathname.startsWith('/pay/');
 
   const [user, setUser] = useState<Saya | null>(null);
   const saya = useQuery({
@@ -46,6 +47,7 @@ export default function App() {
     return (
       <Routes>
         <Route path="/bayar/:payId" element={<Bayar />} />
+        <Route path="/pay/:payId" element={<Bayar />} />
       </Routes>
     );
   }
@@ -95,6 +97,7 @@ export default function App() {
         <Route path="/tagihan" element={<Tagihan />} />
         <Route path="/aplikasi" element={<Aplikasi />} />
         <Route path="/webhook" element={<Webhook />} />
+        <Route path="/doks" element={<Doks />} />
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

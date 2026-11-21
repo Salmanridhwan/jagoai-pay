@@ -40,10 +40,7 @@ export function Webhook() {
       <div className="page__head">
         <div>
           <h1 className="page__title">Webhook</h1>
-          <p className="page__sub">
-            Setiap perubahan status tagihan dikirim ke aplikasi pemiliknya. Yang gagal dicoba ulang dengan jeda
-            makin panjang, lalu dimatikan. Anda bisa memutar ulang satu event secara manual.
-          </p>
+          <p className="page__sub">Pengiriman event ke aplikasi. Yang gagal bisa diputar ulang.</p>
         </div>
         <div className="toolbar">
           <span className="field">

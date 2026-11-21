@@ -75,8 +75,7 @@ export function Tagihan() {
         <div>
           <h1 className="page__title">Tagihan</h1>
           <p className="page__sub">
-            {total} tagihan tercatat. Klik satu baris untuk melihat rincian, jejak webhook, dan memutuskan bukti
-            transfer yang menunggu.
+            {total} tagihan. Klik satu baris untuk rincian, jejak webhook, dan keputusan bukti.
           </p>
         </div>
       </div>
