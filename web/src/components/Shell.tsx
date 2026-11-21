@@ -38,7 +38,8 @@ export function Shell({
   return (
     <div className="shell">
       <nav className="rail" aria-label="Navigasi utama">
-        <div className="rail__mark" title="JagoAI Pay">JP</div>
+        {/* Mark, bukan huruf "JP": dua huruf di kotak adalah placeholder, bukan identitas. */}
+        <img className="rail__mark" src="/mark.svg" alt="JagoAI Pay" width={30} height={30} />
         {MENU.map(({ ke, label, ikon: Ikon }) => (
           <NavLink
             key={ke}

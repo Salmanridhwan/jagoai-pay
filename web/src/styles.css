@@ -75,9 +75,6 @@ button { font: inherit; color: inherit; }
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel-2);
-  color: var(--pos);
-  font-family: var(--mono);
-  font-size: 13px;
   font-weight: 700;
   margin-bottom: 14px;
 }

@@ -36,7 +36,7 @@ export function Login({
     <div className="gate">
       <form className="gate__form" onSubmit={kirim}>
         <div className="gate__mark">
-          <i>JP</i> JagoAI Pay
+          <img src="/mark.svg" alt="" width={26} height={26} /> JagoAI Pay
         </div>
         <h1 className="gate__title">Masuk ke console</h1>
         <p className="gate__sub">
