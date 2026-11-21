@@ -6,19 +6,19 @@ import { Chip, Panel } from '../components/ui';
 // maupun dari sisi console. Ditulis pendek per baris supaya bisa dibaca sambil kerja.
 
 function Kode({ isi, judul }: { isi: string; judul?: string }) {
-  const [tersalin, setTersalin] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'ok' | 'gagal'>('idle');
   return (
     <div className="kode">
       {judul ? <div className="kode__judul">{judul}</div> : null}
       <button
         className="btn btn--ghost kode__salin"
-        onClick={() => {
-          navigator.clipboard?.writeText(isi).catch(() => {});
-          setTersalin(true);
-          window.setTimeout(() => setTersalin(false), 1500);
+        onClick={async () => {
+          const ok = await salinTeks(isi);
+          setStatus(ok ? 'ok' : 'gagal');
+          window.setTimeout(() => setStatus('idle'), 1600);
         }}
       >
-        <Copy size={13} strokeWidth={1.8} /> {tersalin ? 'tersalin' : 'salin'}
+        <Copy size={13} strokeWidth={1.8} /> {status === 'ok' ? 'tersalin' : status === 'gagal' ? 'gagal salin' : 'salin'}
       </button>
       <pre className="mono-block">{isi}</pre>
     </div>
@@ -82,13 +82,271 @@ const MASALAH: [string, string, string][] = [
   ['503', 'gateway_down', 'Jembatan pembayaran (jamy) atau gateway di baliknya sedang tidak bisa dihubungi. Tagihan ditandai gagal; ulangi beberapa saat lagi.'],
 ];
 
+// Contoh kode disimpan sebagai konstanta modul, bukan ditulis dua kali: blok di halaman dan teks
+// yang disalin ("Salin semua") memakai sumber yang sama, jadi tidak mungkin berbeda isi.
+const CONTOH_PERMINTAAN = `curl -X POST {BASE}/api/jagoai-pay/v1/charges \\
+  -H "X-JagoaiPay-Key: jgp_xxxxx" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "appOrderId": "INV-2026-0001",
+    "amount": 150000,
+    "channel": "manual-transfer",
+    "description": "Kelas JagoAI - Batch 12",
+    "customer": { "name": "Salman", "email": "salman@example.com" }
+  }'`;
+
+const CONTOH_BALASAN = `{
+  "payId": "pym_du59m1ve7x",
+  "status": "PENDING",
+  "amount": 150000,
+  "fee": 0,
+  "net": 150000,
+  "channel": { "code": "manual-transfer", "name": "Transfer Manual", "group": "manual" },
+  "payMethod": { "type": "manual", "instructions": "Unggah bukti transfer lewat endpoint /proof." },
+  "checkoutUrl": "{BASE}/pay/pym_du59m1ve7x",
+  "expiresAt": "2026-11-22T05:54:00.000Z"
+}`;
+
+const CONTOH_WEBHOOK = `{
+  "apiVersion": "2026-11-01",
+  "eventId": "evt_...",
+  "event": "charge.paid",
+  "occurredAt": "2026-11-21T05:54:00.000Z",
+  "attempt": 0,
+  "data": { "payId": "pym_du59m1ve7x", "status": "PAID", "amount": 150000, "metadata": {} }
+}`;
+
+const CONTOH_HMAC = `const t = req.header('X-JagoaiPay-Signature'); // t=<unix>,v1=<hex>
+const [bagianT, bagianV1] = t.split(',').map((p) => p.split('=')[1]);
+const harap = crypto.createHmac('sha256', SECRET).update(bagianT + '.' + rawBody).digest('hex');
+if (harap !== bagianV1) return res.status(401).end();
+if (Math.abs(Date.now() / 1000 - Number(bagianT)) > 300) return res.status(401).end();`;
+
+// Alamat dasar diambil dari tempat console dibuka; di produksi nilainya otomatis domain publik.
+const BASE = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4020';
+
+function tabel(judul: string[], baris: (string | number)[][]): string {
+  return [
+    `| ${judul.join(' | ')} |`,
+    `| ${judul.map(() => '---').join(' | ')} |`,
+    ...baris.map((b) => `| ${b.map((sel) => String(sel)).join(' | ')} |`),
+  ].join('\n');
+}
+
+// \"Salin semua\": satu dokumen markdown yang berdiri sendiri. Disusun dari daftar yang sama dengan
+// halaman (LANGKAH, FIELD_TAGIHAN, STATUS_TAGIHAN, EVENT, MASALAH), jadi menambah satu status atau
+// satu kode galat di halaman otomatis ikut ke dokumen yang disalin.
+function dokumenLengkap(): string {
+  const base = BASE;
+  const api = `${base}/api/jagoai-pay/v1`;
+  const isi = (teks: string) => teks.split('{BASE}').join(base);
+  const waktu = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'long', timeStyle: 'short' });
+
+  const bagian: string[] = [];
+
+  bagian.push(
+    '# JagoAI Pay — dokumen integrasi',
+    '',
+    `Disalin dari ${base}/doks pada ${waktu} WIB. Dokumen ini berdiri sendiri; tidak perlu halaman lain.`,
+    '',
+    '## Ringkas',
+    `- BASE (console + halaman bayar): ${base}`,
+    `- Endpoint API: ${base}/api/jagoai-pay/v1`,
+    '- BASE diambil dari alamat console ini (satu domain untuk console + API). Kalau API dipisah ke domain lain,',
+    '  ganti BASE dengan domain API-nya — path setelah /api/jagoai-pay/v1 tidak berubah.',
+    '- Autentikasi API: header `X-JagoaiPay-Key: jgp_…` — satu kunci per aplikasi, dibuat di menu Aplikasi, tampil sekali',
+    '- Webhook: header `X-JagoaiPay-Signature` dan `X-JagoaiPay-Event`; tanda tangan HMAC-SHA256 atas `t + "." + rawBody`',
+    '- Kunci API dan secret webhook tidak bisa dilihat ulang di console. Jangan taruh di browser, log, atau repo.',
+    '',
+    '## Alur singkat',
+    ...LANGKAH.map((l) => `${l.n}. **${l.judul}** — ${l.isi}`),
+    '',
+  );
+
+  bagian.push(
+    '## Mulai (sekali per aplikasi)',
+    '1. Buka menu Aplikasi, isi kode (mis. `kasir-utama`), nama, channel yang diizinkan, dan URL webhook.',
+    '2. Salin kunci API (`jgp_…`) dan secret webhook (`whs_…`). Keduanya tampil sekali — simpan di server aplikasi.',
+    '3. Kirim header `X-JagoaiPay-Key` di setiap permintaan. Tanpa URL webhook, event langsung berstatus DEAD.',
+    '',
+  );
+
+  bagian.push(
+    '## Membuat tagihan',
+    `POST \`${api}/charges\``,
+    '',
+    '```bash',
+    isi(CONTOH_PERMINTAAN),
+    '```',
+    '',
+    'Balasan 201:',
+    '',
+    '```json',
+    isi(CONTOH_BALASAN),
+    '```',
+    '',
+    tabel(['Field', 'Wajib', 'Keterangan'], FIELD_TAGIHAN),
+    '',
+    'Idempoten: kirim ulang `appOrderId` yang masih aktif dan Anda menerima tagihan yang sama (HTTP 200, bukan 201).',
+    'Kalau appOrderId itu sudah lunas, jawabannya 409 `already_paid`.',
+    '',
+  );
+
+  bagian.push(
+    '## Cek status (tanpa menunggu webhook)',
+    tabel(['Permintaan', 'Keterangan'], [
+      ['GET `/charges/<payId>`', 'Objek tagihan lengkap. Bila masih PENDING lebih dari 60 detik, status ikut ditanyakan ke gateway.'],
+      ['GET `/charges?appOrderId=INV-2026-0001`', 'Cari tagihan memakai id pesanan sendiri — praktis untuk rekonsiliasi.'],
+      ['GET `/channels`', 'Channel yang diizinkan untuk aplikasi ini, beserta biaya dan grupnya.'],
+    ]),
+    '',
+    `Semua path di atas relatif terhadap \`${api}\`.`,
+    '',
+  );
+
+  bagian.push(
+    '## Arti status',
+    tabel(['Status', 'Arti'], STATUS_TAGIHAN.map((s) => [s.status, s.arti])),
+    '',
+    '## Channel',
+    '- `manual-transfer` selalu tersedia dan tanpa biaya; pembeli mentransfer sendiri lalu mengunggah bukti.',
+    '- `auto` memilih channel utama aplikasi. Kode lain (mis. `SP` QRIS, `BR` VA) harus ada di daftar channel aplikasi',
+    '  dan di akun gateway.',
+    '- Gateway berjalan lewat jembatan ke jamy: layanan ini tidak menyimpan kredensial Duitku. Jamy membuat transaksi',
+    '  di merchant akademi lalu memberi tahu statusnya ke sini.',
+    '- Selama jembatan belum diisi, permintaan channel gateway dijawab `503 gateway_off` — bukan berarti channel salah.',
+    '',
+  );
+
+  bagian.push(
+    '## Bukti transfer (alur manual-transfer)',
+    '1. Pembeli mengunggah bukti di halaman bayar, atau aplikasi mengirim `POST /charges/<payId>/proof`',
+    '   dengan body `{ "proof": "data:image/png;base64,…" }` (maks 1 MB). Status jadi REVIEW.',
+    '2. Putuskan dari console (menu Tagihan) atau lewat `POST /charges/<payId>/decision` dengan',
+    '   `{ "decision": "approve" }` atau `"reject"`. Keputusan lewat API butuh `allowDecisions` aktif di aplikasi.',
+    '3. Approve → PAID (paidAt terisi). Reject → REJECTED, pembeli boleh mengunggah bukti lagi.',
+    '',
+  );
+
+  bagian.push(
+    '## Webhook',
+    tabel(['Event', 'Kapan dikirim'], EVENT),
+    '',
+    'Body yang dikirim:',
+    '',
+    '```json',
+    CONTOH_WEBHOOK,
+    '```',
+    '',
+    'Verifikasi tanda tangan (node):',
+    '',
+    '```js',
+    CONTOH_HMAC,
+    '```',
+    '',
+    '- Header: `X-JagoaiPay-Signature` (`t=<unix>,v1=<hex>`) dan `X-JagoaiPay-Event`. Balas 2xx dalam 8 detik.',
+    '- Gagal dicoba ulang 6 kali: 1 menit, 5 menit, 30 menit, 2 jam, 6 jam, lalu DEAD.',
+    '- Putar ulang satu event: tombol putar di menu Webhook, atau `POST /deliveries/<deliveryId>/replay`.',
+    '- Hitung HMAC atas body mentah (raw), bukan hasil parse ulang JSON.',
+    '',
+  );
+
+  bagian.push(
+    '## Halaman bayar (untuk pembeli, tanpa login)',
+    `Kirim \`checkoutUrl\` dari balasan API ke pembeli: ${base}/pay/<payId>`,
+    'Halaman menampilkan nominal, QR/VA atau instruksi transfer, tombol unggah bukti, dan status terkini',
+    '(menyegarkan sendiri tiap 15 detik).',
+    '',
+  );
+
+  bagian.push(
+    '## Isi console',
+    tabel(['Menu', 'Dipakai untuk'], [
+      ['Dashboard', 'Uang masuk, tagihan menunggu keputusan, event gagal, tren nilai lunas per hari.'],
+      ['Tagihan', 'Cari tagihan, lihat rincian dan jejak webhook, putuskan bukti transfer.'],
+      ['Aplikasi', 'Daftarkan aplikasi, atur channel dan URL webhook, putar kunci API.'],
+      ['Webhook', 'Antrean event: status kirim, error terakhir, putar ulang.'],
+      ['Doks', 'Dokumen ini — cara pakai dari sisi aplikasi.'],
+    ]),
+    '',
+  );
+
+  bagian.push(
+    '## Kalau bermasalah',
+    tabel(['HTTP', 'code', 'Artinya'], MASALAH),
+    '',
+    'Semua galat berbentuk `{ "error": { "code": "…", "message": "…" } }`.',
+    'Untuk bertanya ke operator, sebutkan payId atau appOrderId-nya.',
+    '',
+  );
+
+  bagian.push(
+    '## Aturan untuk agen yang memakai dokumen ini',
+    '- Jangan pernah mencetak, menyalin, atau meng-commit kunci API (`jgp_…`) dan secret webhook (`whs_…`).',
+    '- `amount` bilangan bulat rupiah; batas per aplikasi minAmount–maxAmount (bawaan 10.000–25.000.000).',
+    '- Selalu pakai `appOrderId` yang stabil per pesanan; jangan membuat tagihan baru untuk pesanan yang sudah ada.',
+    '- Verifikasi `X-JagoaiPay-Signature` atas body mentah sebelum memproses event.',
+    '- PENDING bukan gagal: cek ulang lewat GET atau tunggu webhook sebelum menyimpulkan apa pun.',
+    '- `503 gateway_off` berarti jembatan belum diisi, bukan kesalahan permintaan; pakai `manual-transfer` sementara.',
+    '- Jangan menambahkan parameter/field yang tidak ada di dokumen ini; kontraknya sengaja sempit.',
+    '',
+  );
+
+  return bagian.join('\n').trimEnd() + '\n';
+}
+
+// Clipboard API tidak tersedia di semua konteks (mis. http non-localhost). Cadangan: textarea + execCommand.
+async function salinTeks(teks: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(teks);
+      return true;
+    }
+  } catch {
+    /* jatuh ke cadangan */
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = teks;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 export function Doks() {
+  const [salin, setSalin] = useState<'idle' | 'ok' | 'gagal'>('idle');
+  // Dihitung sekali per muat halaman: isinya statis, tidak perlu dihitung ulang tiap render.
+  const [ukuranDok] = useState(() => new Blob([dokumenLengkap()]).size);
+
   return (
     <>
       <div className="page__head">
         <div>
           <h1 className="page__title">Doks</h1>
           <p className="page__sub">Cara memakai JagoAI Pay, dari membuat aplikasi sampai menerima webhook.</p>
+        </div>
+        <div className="toolbar">
+          <span className="panel__hint">{(ukuranDok / 1024).toFixed(0)} kB · markdown</span>
+          <button
+            className="btn"
+            onClick={async () => {
+              const ok = await salinTeks(dokumenLengkap());
+              setSalin(ok ? 'ok' : 'gagal');
+              window.setTimeout(() => setSalin('idle'), 2500);
+            }}
+            title="Salin seluruh dokumen sebagai satu teks untuk ditempel ke agen/AI"
+          >
+            <Copy size={14} strokeWidth={1.8} />{' '}
+            {salin === 'ok' ? 'tersalin — tinggal tempel' : salin === 'gagal' ? 'gagal menyalin' : 'Salin semua'}
+          </button>
         </div>
       </div>
 
@@ -142,33 +400,8 @@ export function Doks() {
       </Blok>
 
       <Blok id="tagihan" judul="Membuat tagihan" petunjuk="POST /api/jagoai-pay/v1/charges">
-        <Kode
-          judul="permintaan"
-          isi={`curl -X POST http://localhost:4010/api/jagoai-pay/v1/charges \\
-  -H "X-JagoaiPay-Key: jgp_xxxxx" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "appOrderId": "INV-2026-0001",
-    "amount": 150000,
-    "channel": "manual-transfer",
-    "description": "Kelas JagoAI - Batch 12",
-    "customer": { "name": "Salman", "email": "salman@example.com" }
-  }'`}
-        />
-        <Kode
-          judul="balasan 201"
-          isi={`{
-  "payId": "pym_du59m1ve7x",
-  "status": "PENDING",
-  "amount": 150000,
-  "fee": 0,
-  "net": 150000,
-  "channel": { "code": "manual-transfer", "name": "Transfer Manual", "group": "manual" },
-  "payMethod": { "type": "manual", "instructions": "Unggah bukti transfer lewat endpoint /proof." },
-  "checkoutUrl": "http://localhost:4020/pay/pym_du59m1ve7x",
-  "expiresAt": "2026-11-22T05:54:00.000Z"
-}`}
-        />
+        <Kode judul="permintaan" isi={CONTOH_PERMINTAAN.split('{BASE}').join(BASE)} />
+        <Kode judul="balasan 201" isi={CONTOH_BALASAN.split('{BASE}').join(BASE)} />
         <div className="tbl-wrap" style={{ marginTop: 12 }}>
           <table>
             <thead>
@@ -296,26 +529,9 @@ export function Doks() {
           </table>
         </div>
 
-        <Kode
-          judul="body yang dikirim"
-          isi={`{
-  "apiVersion": "2026-11-01",
-  "eventId": "evt_...",
-  "event": "charge.paid",
-  "occurredAt": "2026-11-21T05:54:00.000Z",
-  "attempt": 0,
-  "data": { "payId": "pym_du59m1ve7x", "status": "PAID", "amount": 150000, "metadata": {} }
-}`}
-        />
+        <Kode judul="body yang dikirim" isi={CONTOH_WEBHOOK} />
 
-        <Kode
-          judul="verifikasi tanda tangan (node)"
-          isi={`const t = req.header('X-JagoaiPay-Signature'); // t=<unix>,v1=<hex>
-const [bagianT, bagianV1] = t.split(',').map((p) => p.split('=')[1]);
-const harap = crypto.createHmac('sha256', SECRET).update(bagianT + '.' + rawBody).digest('hex');
-if (harap !== bagianV1) return res.status(401).end();
-if (Math.abs(Date.now() / 1000 - Number(bagianT)) > 300) return res.status(401).end();`}
-        />
+        <Kode judul="verifikasi tanda tangan (node)" isi={CONTOH_HMAC} />
 
         <ul className="dok__list" style={{ marginTop: 12 }}>
           <li>
