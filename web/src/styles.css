@@ -163,6 +163,17 @@ button { font: inherit; color: inherit; }
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
 @media (max-width: 640px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
+/* Ponsel: rel tetap ramping, topbar membungkus, kartu satu kolom. Tanpa ini halaman meluber
+   horizontal karena topbar (badge + nama + tombol) tidak punya tempat turun. */
+@media (max-width: 560px) {
+  .rail { width: 52px; flex: 0 0 52px; }
+  .rail__link { width: 38px; height: 38px; }
+  .topbar { height: auto; padding: 8px 12px; flex-wrap: wrap; row-gap: 6px; }
+  .topbar__right { margin-left: 0; width: 100%; justify-content: space-between; }
+  .page { padding: 14px 12px; gap: 14px; }
+  .kpis { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* Kartu yang bisa diklik: seluruh kartu jadi sasaran, bukan hanya teksnya. */
 .kpi-link { display: block; text-decoration: none; color: inherit; border-radius: var(--radius-lg); }
 .kpi-link .kpi { height: 100%; transition: border-color .15s ease, background .15s ease; }
@@ -225,6 +236,16 @@ button { font: inherit; color: inherit; }
 .panel--chart .panel__body { flex: 1; display: flex; min-height: 0; }
 
 .status-rows { display: flex; flex-direction: column; gap: 2px; }
+/* Satu kelompok = satu keadaan (selesai/berjalan/butuh tindakan/gagal) dengan subtotalnya. */
+.status-grup { display: flex; flex-direction: column; gap: 2px; }
+.status-grup + .status-grup { margin-top: 8px; }
+.status-grup__head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 2px 10px 3px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); border-bottom: 1px dashed var(--line-soft);
+}
+.status-grup__head .num { letter-spacing: 0; text-transform: none; font-size: 10.5px; color: var(--ink-2); }
 .status-row {
   display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center;
   padding: 8px 10px; border-radius: var(--radius);
@@ -236,6 +257,8 @@ button { font: inherit; color: inherit; }
 .status-row__bar > i { display: block; height: 100%; border-radius: 2px; }
 
 /* ------------------------------------------------------------------ tabel */
+
+tbody tr.is-klik:hover { background: var(--panel-2); }
 
 .tbl-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
@@ -323,8 +346,10 @@ td.id { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); }
   font-family: var(--mono); font-size: 11.5px; background: var(--bg-2); border: 1px solid var(--line);
   border-radius: var(--radius); padding: 10px 12px; overflow-x: auto; color: var(--ink-2); white-space: pre;
 }
-.split { display: grid; grid-template-columns: 1.6fr 1fr; gap: 12px; }
-@media (max-width: 1080px) { .split { grid-template-columns: 1fr; } }
+.split { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 12px; }
+/* minmax(0, …) bukan 1fr: 1fr berarti minmax(auto, 1fr), dan kolomnya menolak menyusut di bawah
+   lebar min-content isinya — itulah yang membuat grafik meluber di layar ponsel. */
+@media (max-width: 1080px) { .split { grid-template-columns: minmax(0, 1fr); } }
 
 .toast {
   position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);

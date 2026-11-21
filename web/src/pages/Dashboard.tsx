@@ -17,6 +17,16 @@ const WARNA_STATUS: Record<string, string> = {
 // "Uang bocor" dan tautan ?status=GAGAL; di daftar tagihan statusnya tetap tampil apa adanya.
 const GAGAL = ['EXPIRED', 'FAILED', 'REJECTED'];
 
+// Enam status mentah tidak menjawab pertanyaan pemilik layanan. Dikelompokkan jadi empat keadaan
+// yang masing-masing punya tindakan berbeda: uang sudah masuk, masih menunggu pembeli, menunggu
+// keputusan operator, atau sudah tidak akan jadi uang.
+const KELOMPOK: { label: string; status: Status[] }[] = [
+  { label: 'selesai', status: ['PAID'] },
+  { label: 'berjalan', status: ['PENDING'] },
+  { label: 'butuh tindakan', status: ['REVIEW'] },
+  { label: 'gagal', status: GAGAL as Status[] },
+];
+
 // "Tertua 3 hari" lebih berguna daripada jam pasti: yang perlu ditindak adalah sejak kapan uang
 // pembeli tertahan, bukan detiknya.
 // Label di puncak batang harus muat ~25–54px: "Rp 149 rb" jadi "149rb" (tanpa spasi & awalan Rp).
@@ -140,7 +150,7 @@ export function Dashboard() {
           kelas="panel--chart"
           aksi={
             <div className="seg" role="group" aria-label="Panjang periode grafik">
-              {([14, 30] as const).map((n) => (
+              {([7, 14, 30] as const).map((n) => (
                 <button
                   key={n}
                   type="button"
@@ -187,7 +197,23 @@ export function Dashboard() {
 
         <Panel judul="Sebaran status" petunjuk="klik untuk menyaring">
           <div className="status-rows">
-            {d.perStatus.map((s) => (
+            {KELOMPOK.map((k) => {
+              const isi = k.status
+                .map((st) => d.perStatus.find((x) => x.status === st))
+                .filter((x): x is NonNullable<typeof x> => !!x);
+              if (!isi.length) return null;
+              const subtotalJumlah = isi.reduce((n, x) => n + Number(x.jumlah || 0), 0);
+              const subtotalNilai = isi.reduce((n, x) => n + Number(x.nilai || 0), 0);
+              return (
+                <div key={k.label} className="status-grup">
+                  <div className="status-grup__head">
+                    <span>{k.label}</span>
+                    <span className="num">
+                      {subtotalJumlah} · {rupiahPendek(subtotalNilai)} ·{' '}
+                      {totalTagihan > 0 ? Math.round((subtotalJumlah / totalTagihan) * 100) : 0}%
+                    </span>
+                  </div>
+            {isi.map((s) => (
               <button
                 key={s.status}
                 className="status-row"
@@ -207,6 +233,9 @@ export function Dashboard() {
                 </span>
               </button>
             ))}
+                </div>
+              );
+            })}
           </div>
         </Panel>
       </div>
@@ -228,9 +257,16 @@ export function Dashboard() {
               {perApp.map((a) => {
                 const jumlahApp = Number(a.jumlah || 0);
                 const lunasApp = Number(a.lunas || 0);
+                // Baris bisa diklik: halaman Tagihan kini menerima ?app=, jadi angka per app bisa ditelusuri.
+                const bukaApp = () => nav(`/tagihan?app=${encodeURIComponent(a.appCode)}`);
                 const rasioApp = jumlahApp > 0 ? Math.round((lunasApp / jumlahApp) * 100) : 0;
                 return (
-                  <tr key={a.appCode}>
+                  <tr
+                    key={a.appCode}
+                    onClick={bukaApp}
+                    style={{ cursor: 'pointer' }}
+                    title={`Lihat tagihan ${a.appCode}`}
+                  >
                     <td>
                       <span className="id">{a.appCode}</span>
                       <div style={{ color: 'var(--muted)', fontSize: 11 }}>{a.nama}</div>

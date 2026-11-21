@@ -23,6 +23,7 @@ export function Tagihan() {
   const [params, setParams] = useSearchParams();
   const qc = useQueryClient();
   const [status, setStatus] = useState(params.get('status') || 'semua');
+  const [app, setApp] = useState(params.get('app') || 'semua');
   const [cari, setCari] = useState('');
   const [cariKirim, setCariKirim] = useState('');
   const [halaman, setHalaman] = useState(0);
@@ -35,9 +36,13 @@ export function Tagihan() {
   }, [cari]);
 
   const daftar = useQuery({
-    queryKey: ['charges', status, cariKirim, halaman],
-    queryFn: () => api.charges({ status, q: cariKirim, limit: HALAMAN, offset: halaman * HALAMAN }),
+    queryKey: ['charges', status, app, cariKirim, halaman],
+    queryFn: () => api.charges({ status, app, q: cariKirim, limit: HALAMAN, offset: halaman * HALAMAN }),
   });
+
+  // Daftar aplikasi untuk penyaring. Diambil dari /apps (bukan dari baris tagihan) supaya aplikasi
+  // yang belum punya tagihan tetap bisa dipilih.
+  const aplikasi = useQuery({ queryKey: ['apps'], queryFn: api.apps });
 
   const detail = useQuery({
     queryKey: ['charge', dipilih],
@@ -76,6 +81,15 @@ export function Tagihan() {
     setParams(next);
   }
 
+  function ubahApp(nilai: string) {
+    setApp(nilai);
+    setHalaman(0);
+    const next = new URLSearchParams(params);
+    if (nilai === 'semua') next.delete('app');
+    else next.set('app', nilai);
+    setParams(next);
+  }
+
   const total = daftar.data?.total ?? 0;
   const baris = daftar.data?.rows ?? [];
   const galatPutus = putuskan.error instanceof ApiError ? putuskan.error.message : null;
@@ -107,6 +121,16 @@ export function Tagihan() {
                   setHalaman(0);
                 }}
               />
+            </span>
+            <span className="field">
+              <select value={app} onChange={(e) => ubahApp(e.target.value)} aria-label="Saring aplikasi">
+                <option value="semua">semua aplikasi</option>
+                {(aplikasi.data?.rows || []).map((a) => (
+                  <option key={a.code} value={a.code}>
+                    {a.code}
+                  </option>
+                ))}
+              </select>
             </span>
             <span className="field">
               <select value={status} onChange={(e) => ubahStatus(e.target.value)} aria-label="Saring status">
