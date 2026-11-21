@@ -149,7 +149,8 @@ button { font: inherit; color: inherit; }
   overflow: hidden;
 }
 .panel__head {
-  display: flex; align-items: baseline; gap: 10px; justify-content: space-between;
+  display: flex; align-items: baseline; gap: 10px 12px; justify-content: space-between;
+  flex-wrap: wrap;
   padding: 13px 16px; border-bottom: 1px solid var(--line-soft);
 }
 .panel__title { font-size: 13px; font-weight: 650; letter-spacing: .01em; }
@@ -198,7 +199,14 @@ button { font: inherit; color: inherit; }
   flex: 1; display: flex; align-items: flex-end; gap: 6px;
   min-height: 60px; border-bottom: 1px solid var(--line-soft);
 }
-.chart__col { flex: 1; height: 100%; display: flex; align-items: flex-end; min-width: 0; }
+.chart__col { flex: 1; height: 100%; display: flex; align-items: flex-end; min-width: 0; position: relative; }
+/* Nilai di puncak batang: diposisikan absolut supaya tidak ikut menekan tinggi batang (persen tetap). */
+.chart__val {
+  position: absolute; left: 0; right: 0; text-align: center;
+  font-family: var(--mono); font-size: 9px; color: var(--ink-2);
+  letter-spacing: -0.02em; white-space: nowrap; pointer-events: none;
+}
+@media (max-width: 720px) { .chart__val { display: none; } }
 .chart__bar {
   width: 100%; border-radius: 2px 2px 0 0;
   background: linear-gradient(180deg, rgba(0, 214, 143, .85), rgba(0, 214, 143, .45));
@@ -246,6 +254,16 @@ td.strong { color: var(--ink); font-weight: 600; }
 td.id { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); }
 
 /* ---------------------------------------------------------------- kendali */
+
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.seg__btn {
+  background: transparent; border: 0; color: var(--muted); cursor: pointer;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase;
+  padding: 5px 9px; line-height: 1;
+}
+.seg__btn + .seg__btn { border-left: 1px solid var(--line); }
+.seg__btn:hover { color: var(--ink); background: var(--panel-2); }
+.seg__btn.is-on { color: var(--ink); background: var(--panel-2); box-shadow: inset 0 -2px 0 var(--pos); }
 
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .toolbar__spacer { flex: 1; }

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, rupiah, rupiahPendek, tanggalPendek, waktu, type Status } from '../api';
@@ -18,6 +19,21 @@ const GAGAL = ['EXPIRED', 'FAILED', 'REJECTED'];
 
 // "Tertua 3 hari" lebih berguna daripada jam pasti: yang perlu ditindak adalah sejak kapan uang
 // pembeli tertahan, bukan detiknya.
+// Label di puncak batang harus muat ~25–54px: "Rp 149 rb" jadi "149rb" (tanpa spasi & awalan Rp).
+// Rp dihilangkan karena seluruh panel sudah berbicara rupiah; satuannya cukup di petunjuk panel.
+function singkat(nilai: string | number): string {
+  return rupiahPendek(Number(nilai)).replace('Rp', '').replace(/\s+/g, '');
+}
+
+// Median waktu bayar dibaca dalam menit; "90 mnt" tidak enak dibaca, jadi dipecah ke jam.
+function durasi(menit: number | null): string {
+  if (menit === null || !Number.isFinite(menit)) return '—';
+  if (menit < 60) return `${menit} mnt`;
+  const jam = Math.floor(menit / 60);
+  const sisa = menit % 60;
+  return sisa ? `${jam} j ${sisa} mnt` : `${jam} jam`;
+}
+
 function umur(iso: string | null): string {
   if (!iso) return '';
   const ms = Date.now() - new Date(iso).getTime();
@@ -30,10 +46,12 @@ function umur(iso: string | null): string {
 
 export function Dashboard() {
   const nav = useNavigate();
-  const ringkas = useQuery({ queryKey: ['ringkasan'], queryFn: api.ringkasan });
+  const [jendela, setJendela] = useState<7 | 14 | 30>(14);
+  const [tab, setTab] = useState<'terbaru' | 'tindakan'>('terbaru');
+  const ringkas = useQuery({ queryKey: ['ringkasan', jendela], queryFn: () => api.ringkasan(jendela) });
   const terbaru = useQuery({
-    queryKey: ['charges', 'terbaru'],
-    queryFn: () => api.charges({ limit: 8 }),
+    queryKey: ['charges', 'terbaru', tab],
+    queryFn: () => api.charges({ limit: 8, status: tab === 'tindakan' ? 'REVIEW' : undefined }),
   });
 
   if (ringkas.isLoading) return <div className="empty">Memuat dashboard…</div>;
@@ -50,6 +68,8 @@ export function Dashboard() {
   const bocorNilai = bocorRows.reduce((n, s) => n + Number(s.nilai || 0), 0);
   const bocorRincian = bocorRows.map((s) => `${s.status} ${s.jumlah}`).join(' · ');
   const umurTertua = umur(d.tindakan?.tertua ?? null);
+  const totalPeriode = d.tren.reduce((n, t) => n + Number(t.nilai || 0), 0);
+  const totalTagihan = Number(d.total.jumlah || 0);
   const perApp = d.perApp || [];
   const totalApp = perApp.reduce(
     (t, a) => ({ jumlah: t.jumlah + Number(a.jumlah || 0), lunas: t.lunas + Number(a.lunas || 0), biaya: t.biaya + Number(a.biaya || 0) }),
@@ -116,8 +136,23 @@ export function Dashboard() {
       <div className="split">
         <Panel
           judul={`Nilai lunas ${d.tren.length} hari terakhir`}
-          petunjuk="nilai tagihan lunas per hari"
+          petunjuk={`total ${rupiah(totalPeriode)} periode ini · median bayar ${durasi(d.medianBayarMenit)}`}
           kelas="panel--chart"
+          aksi={
+            <div className="seg" role="group" aria-label="Panjang periode grafik">
+              {([14, 30] as const).map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={`seg__btn${jendela === n ? ' is-on' : ''}`}
+                  aria-pressed={jendela === n}
+                  onClick={() => setJendela(n)}
+                >
+                  {n} hari
+                </button>
+              ))}
+            </div>
+          }
         >
           <div className="chart" role="img" aria-label="Grafik nilai tagihan empat belas hari terakhir">
             <div className="chart__plot">
@@ -130,6 +165,11 @@ export function Dashboard() {
                     key={t.hari}
                     title={`${tanggalPendek(t.hari)} · ${rupiah(t.nilai)}`}
                   >
+                    {Number(t.nilai) > 0 && d.tren.length <= 14 ? (
+                      <span className="chart__val" style={{ bottom: `calc(${persen}% + 3px)` }}>
+                        {singkat(t.nilai)}
+                      </span>
+                    ) : null}
                     <div className="chart__bar" style={{ height: `${persen}%` }} />
                   </div>
                 );
@@ -162,7 +202,9 @@ export function Dashboard() {
                   <Panjang nilai={Number(s.jumlah)} maks={maksStatus} warna={WARNA_STATUS[s.status] || 'var(--info)'} />
                 </div>
                 <span className="num" style={{ fontSize: 13 }}>{s.jumlah}</span>
-                <span style={{ color: 'var(--muted)', fontSize: 11 }}>tagihan</span>
+                <span style={{ color: 'var(--muted)', fontSize: 11 }}>
+                  {totalTagihan > 0 ? Math.round((Number(s.jumlah) / totalTagihan) * 100) : 0}%
+                </span>
               </button>
             ))}
           </div>
@@ -221,13 +263,37 @@ export function Dashboard() {
 
       <div className="split">
         <Panel
-          judul="Tagihan terbaru"
-          petunjuk="8 terakhir"
+          judul="Tagihan"
+          petunjuk={tab === 'tindakan' ? 'menunggu keputusan, terlama dulu' : '8 terakhir dibuat'}
           padat={false}
           aksi={
-            <Link className="panel__hint" to="/tagihan">
-              semua tagihan →
-            </Link>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div className="seg" role="group" aria-label="Pilih daftar tagihan">
+                <button
+                  type="button"
+                  className={`seg__btn${tab === 'terbaru' ? ' is-on' : ''}`}
+                  aria-pressed={tab === 'terbaru'}
+                  onClick={() => setTab('terbaru')}
+                >
+                  Terbaru
+                </button>
+                <button
+                  type="button"
+                  className={`seg__btn${tab === 'tindakan' ? ' is-on' : ''}`}
+                  aria-pressed={tab === 'tindakan'}
+                  onClick={() => setTab('tindakan')}
+                >
+                  Perlu tindakan
+                </button>
+              </div>
+              <Link
+                className="panel__hint"
+                to={tab === 'tindakan' ? '/tagihan?status=REVIEW' : '/tagihan'}
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                semua tagihan →
+              </Link>
+            </div>
           }
         >
           <div className="tbl-wrap">
@@ -242,6 +308,13 @@ export function Dashboard() {
                 </tr>
               </thead>
               <tbody>
+                {(terbaru.data?.rows || []).length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ color: 'var(--muted)', textAlign: 'center', padding: '18px 12px' }}>
+                      Tidak ada tagihan pada daftar ini.
+                    </td>
+                  </tr>
+                ) : null}
                 {(terbaru.data?.rows || []).map((c) => (
                   <tr key={c.payId} onClick={() => nav(`/tagihan?payId=${c.payId}`)} style={{ cursor: 'pointer' }}>
                     <td className="id">{c.payId}</td>
@@ -258,26 +331,49 @@ export function Dashboard() {
           </div>
         </Panel>
 
-        <Panel judul="Kesehatan integrasi">
-          <dl className="detail__grid" style={{ gridTemplateColumns: '1fr auto' }}>
-            <dt>Aplikasi aktif</dt>
-            <dd className="num" style={{ textAlign: 'right' }}>
-              {d.apps.aktif} / {d.apps.jumlah}
-            </dd>
-            <dt>Tanpa URL webhook</dt>
-            <dd className="num" style={{ textAlign: 'right', color: d.apps.tanpahook ? 'var(--warn)' : 'var(--ink)' }}>
-              {d.apps.tanpahook}
-            </dd>
-            <dt>Event terkirim</dt>
-            <dd className="num" style={{ textAlign: 'right', color: 'var(--pos)' }}>{d.deliveries.terkirim}</dd>
-            <dt>Menunggu kirim</dt>
-            <dd className="num" style={{ textAlign: 'right', color: 'var(--warn)' }}>{d.deliveries.menunggu}</dd>
-            <dt>Gagal permanen</dt>
-            <dd className="num" style={{ textAlign: 'right', color: 'var(--danger)' }}>{d.deliveries.mati}</dd>
-            <dt>Lunas</dt>
-            <dd className="num" style={{ textAlign: 'right' }}>{lunas?.jumlah || 0} tagihan</dd>
-          </dl>
-          <p className="panel__hint" style={{ marginTop: 12 }}>
+        <Panel
+          judul="Kesehatan integrasi"
+          petunjuk={`${d.deliveries.terkirim} terkirim · ${d.deliveries.mati} gagal · ${d.deliveries.menunggu} menunggu`}
+          padat={false}
+        >
+          <div className="tbl-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Aplikasi</th>
+                  <th style={{ textAlign: 'right' }}>Terkirim</th>
+                  <th style={{ textAlign: 'right' }}>Gagal</th>
+                  <th>Error terakhir</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(d.perAppSehat || []).map((a) => (
+                  <tr key={a.appCode}>
+                    <td>
+                      <span className="id">{a.appCode}</span>
+                      {a.tanpaHook ? (
+                        <div style={{ color: 'var(--warn)', fontSize: 11 }}>tanpa URL webhook</div>
+                      ) : null}
+                    </td>
+                    <td className="num" style={{ textAlign: 'right', color: 'var(--pos)' }}>{Number(a.terkirim)}</td>
+                    <td className="num" style={{ textAlign: 'right' }}>
+                      <span style={{ color: Number(a.mati) > 0 ? 'var(--danger)' : 'var(--ink)' }}>{Number(a.mati)}</span>
+                      {Number(a.menunggu) > 0 ? (
+                        <span style={{ color: 'var(--muted)', fontSize: 11 }}> · {Number(a.menunggu)} menunggu</span>
+                      ) : null}
+                    </td>
+                    <td
+                      title={a.errorTerakhir || ''}
+                      style={{ color: 'var(--muted)', fontSize: 11.5, maxWidth: 160, whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.35 }}
+                    >
+                      {a.errorTerakhir || '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="panel__hint" style={{ padding: '12px 16px 14px' }}>
             {d.apps.tanpahook > 0
               ? 'Ada aplikasi tanpa URL webhook: perubahan status tidak akan pernah sampai ke sana.'
               : 'Semua aplikasi punya URL webhook.'}

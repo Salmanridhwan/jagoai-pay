@@ -13,6 +13,17 @@ export type Ringkasan = {
   perStatus: { status: Status; jumlah: number; nilai: number }[];
   tren: { hari: string; jumlah: number; paid: number; nilai: number }[];
   perApp: { appCode: string; nama: string; jumlah: number; lunas: number; nilai: number; biaya: number; net: number }[];
+  perAppSehat: {
+    appCode: string;
+    nama: string;
+    tanpaHook: boolean;
+    terkirim: number;
+    mati: number;
+    menunggu: number;
+    errorTerakhir: string | null;
+  }[];
+  hari: number;
+  medianBayarMenit: number | null;
   tindakan: { tertua: string | null };
 };
 
@@ -151,7 +162,7 @@ export const api = {
 
   keluar: () => minta<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
 
-  ringkasan: () => minta<Ringkasan>('/api/console/summary'),
+  ringkasan: (hari?: number) => minta<Ringkasan>('/api/console/summary' + q({ hari })),
 
   charges: (p: { status?: string; app?: string; q?: string; limit?: number; offset?: number }) =>
     minta<{ rows: Charge[]; total: number; limit: number; offset: number }>(

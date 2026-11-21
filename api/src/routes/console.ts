@@ -26,8 +26,12 @@ async function appDariKode(code: string): Promise<PayApp | null> {
 router.use(wajibLogin);
 
 // GET /api/console/summary
-router.get('/summary', async (_req, res) => {
+router.get('/summary', async (req, res) => {
   try {
+    // Jendela grafik bisa 7/14/30 hari. Dibatasi daftar putih: nilai lain kembali ke 14, jadi
+    // parameter aneh (atau 10000) tidak membangkitkan deret panjang dan tidak mengubah bentuk jawaban.
+    const minta = Number(req.query.hari);
+    const hari = [7, 14, 30].includes(minta) ? minta : 14;
     const [perStatus]: any = await pool.query(`
       SELECT status, COUNT(*) AS jumlah, COALESCE(SUM(amount), 0) AS nilai
       FROM pay_charges GROUP BY status
@@ -77,11 +81,43 @@ router.get('/summary', async (_req, res) => {
       ORDER BY "nilai" DESC, c.appCode ASC
     `);
 
+    // Median waktu buat→bayar: satu angka yang menjawab "pembeli biasanya bayar secepat apa".
+    // Rata-rata mudah dirusak satu tagihan yang baru dibayar berhari-hari kemudian.
+    const [median]: any = await pool.query(`
+      SELECT percentile_cont(0.5) WITHIN GROUP (
+               ORDER BY EXTRACT(EPOCH FROM (paidat::timestamptz - createdat::timestamptz)) / 60
+             ) AS menit
+      FROM pay_charges
+      WHERE status = 'PAID' AND paidat <> '' AND createdat <> ''
+    `);
+
     const [apps]: any = await pool.query(`
       SELECT COUNT(*) AS jumlah,
              COUNT(*) FILTER (WHERE status = 'ACTIVE') AS aktif,
              COUNT(*) FILTER (WHERE webhookUrl IS NULL OR webhookUrl = '') AS tanpahook
       FROM pay_apps
+    `);
+
+    // Kesehatan per aplikasi: satu "gagal permanen" global tidak memberi tahu app mana yang rusak.
+    // Basisnya pay_apps (bukan pay_charges) supaya app tanpa tagihan tetap muncul dengan angka nol.
+    const [perAppSehat]: any = await pool.query(`
+      SELECT a.code AS "appCode",
+             a.name AS "nama",
+             (a.webhookUrl IS NULL OR a.webhookUrl = '') AS "tanpaHook",
+             COUNT(d.deliveryid) FILTER (WHERE d.status = 'DELIVERED') AS "terkirim",
+             COUNT(d.deliveryid) FILTER (WHERE d.status = 'DEAD') AS "mati",
+             COUNT(d.deliveryid) FILTER (WHERE d.status IN ('PENDING', 'RETRY')) AS "menunggu"
+      FROM pay_apps a
+      LEFT JOIN pay_webhook_deliveries d ON d.appcode = a.code
+      GROUP BY a.code, a.name, a.webhookUrl
+      ORDER BY a.code ASC
+    `);
+
+    const [errorTerakhir]: any = await pool.query(`
+      SELECT DISTINCT ON (appcode) appcode AS "appCode", lasterror AS "error"
+      FROM pay_webhook_deliveries
+      WHERE status = 'DEAD' AND COALESCE(lasterror, '') <> ''
+      ORDER BY appcode, updatedat DESC
     `);
 
     const [deliveries]: any = await pool.query(`
@@ -93,12 +129,12 @@ router.get('/summary', async (_req, res) => {
     `);
 
     // Rangkaian hari dibangkitkan lebih dulu lalu di-LEFT JOIN, supaya hari tanpa tagihan tetap muncul
-    // sebagai nol (grafik tidak bolong) dan jumlah batangnya tepat 14, bukan "hari yang kebetulan ada".
+    // sebagai nol (grafik tidak bolong) dan jumlah batangnya tepat `hari`, bukan "hari yang kebetulan ada".
     const [tren]: any = await pool.query(
       `WITH hari AS (
          SELECT to_char(g, 'YYYY-MM-DD') AS hari
          FROM generate_series(
-                ((now() AT TIME ZONE 'Asia/Jakarta')::date - INTERVAL '13 day')::date,
+                ((now() AT TIME ZONE 'Asia/Jakarta')::date - (INTERVAL '1 day' * ?))::date,
                 (now() AT TIME ZONE 'Asia/Jakarta')::date,
                 INTERVAL '1 day') g
        )
@@ -113,6 +149,7 @@ router.get('/summary', async (_req, res) => {
         AND to_char(nullif(c.paidAt, '')::timestamptz AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM-DD') = h.hari
        GROUP BY h.hari
        ORDER BY h.hari ASC`,
+      [hari - 1],
     );
 
     return res.json({
@@ -123,6 +160,14 @@ router.get('/summary', async (_req, res) => {
       perStatus: perStatus || [],
       tren: tren || [],
       perApp: perApp || [],
+      perAppSehat: (perAppSehat || []).map((a: any) => ({
+        ...a,
+        errorTerakhir: (errorTerakhir || []).find((e: any) => e.appCode === a.appCode)?.error || null,
+      })),
+      hari,
+      medianBayarMenit: median?.[0]?.menit === null || median?.[0]?.menit === undefined
+        ? null
+        : Math.round(Number(median[0].menit)),
       tindakan: { tertua: tertua?.[0]?.tertua || null },
     });
   } catch (e: any) {
