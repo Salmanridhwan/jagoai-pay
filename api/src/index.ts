@@ -10,7 +10,7 @@ import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import { CORS_ORIGINS, GATEWAY_SIAP, NODE_ENV, PORT, PROOF_DIR, PUBLIC_BASE_URL } from './env';
+import { CORS_ORIGINS, GATEWAY_SIAP, HOST, NODE_ENV, PORT, PROOF_DIR, PUBLIC_BASE_URL } from './env';
 import { cekKoneksi, dbState, pool } from './db';
 import { siapkanSkema } from './schema';
 import { startJagoaiPayCron } from './pay/cron';
@@ -75,8 +75,8 @@ async function main() {
   });
   startJagoaiPayCron(60_000);
 
-  app.listen(PORT, () => {
-    console.log(`[index] JagoAI Pay API siap di ${PUBLIC_BASE_URL} (port ${PORT})`);
+  app.listen(PORT, HOST, () => {
+    console.log(`[index] JagoAI Pay API siap di ${PUBLIC_BASE_URL} (${HOST}:${PORT})`);
   });
 }
 

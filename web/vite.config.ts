@@ -6,6 +6,8 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   server: {
+    // Ikut IPv4 loopback: default Vite hanya [::1], sehingga http://127.0.0.1:4020 ditolak browser.
+    host: '127.0.0.1',
     port: 4020,
     proxy: {
       '/api': { target: 'http://localhost:4010', changeOrigin: false },

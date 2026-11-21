@@ -133,10 +133,19 @@ const q = (params: Record<string, string | number | undefined>) => {
 export const api = {
   saya: () => minta<{ user: Saya }>('/api/auth/me').then((r) => r.user),
 
-  masuk: (email: string, password: string) =>
-    minta<{ user: Saya }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }).then(
-      (r) => r.user,
-    ),
+  // /api/auth/login mengembalikan objek user langsung (bukan { user }), berbeda dari /api/auth/me.
+  // Dulu console membaca r.user sehingga hasilnya undefined: login "berhasil" tapi layar tetap di
+  // halaman masuk tanpa pesan. Sekarang dibaca apa adanya, dengan penjaga kalau bentuknya berubah.
+  masuk: async (email: string, password: string) => {
+    const user = await minta<Saya>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+    if (!user?.id || !user?.email) {
+      throw new ApiError('Respons login tidak dikenali. Periksa log API.', 500, 'bad_login_response');
+    }
+    return user;
+  },
 
   keluar: () => minta<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
 

@@ -9,6 +9,9 @@ const varDir = path.join(ROOT, 'var');
 if (!fs.existsSync(varDir)) fs.mkdirSync(varDir, { recursive: true });
 
 export const PORT = Number(process.env.PORT) || 4010;
+// Default hanya loopback: console keuangan tidak perlu bisa dihubungi dari jaringan lokal. Set HOST=0.0.0.0
+// secara sadar kalau memang mau diakses dari perangkat lain.
+export const HOST = process.env.HOST || '127.0.0.1';
 
 // Alamat publik LAYANAN INI (dipakai menyusun returnUrl/callbackUrl untuk Duitku dan tautan
 // halaman bayar yang dikirim ke aplikasi klien). Bukan alamat jamy.
