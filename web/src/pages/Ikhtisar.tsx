@@ -74,19 +74,34 @@ export function Ikhtisar() {
       </div>
 
       <div className="split">
-        <Panel judul={`Nilai lunas ${d.tren.length} hari terakhir`} petunjuk="nilai tagihan lunas per hari">
+        <Panel
+          judul={`Nilai lunas ${d.tren.length} hari terakhir`}
+          petunjuk="nilai tagihan lunas per hari"
+          kelas="panel--chart"
+        >
           <div className="chart" role="img" aria-label="Grafik nilai tagihan empat belas hari terakhir">
-            {d.tren.map((t) => {
-              // Tinggi dihitung dalam piksel, bukan persen: induk flex punya tinggi auto, sehingga
-              // persen akan runtuh jadi 0 dan grafiknya tampak kosong.
-              const tinggi = Math.max(3, Math.round((Number(t.nilai) / puncak) * 128));
-              return (
-                <div className="chart__col" key={t.hari} title={`${tanggalPendek(t.hari)} · ${rupiah(t.nilai)}`}>
-                  <div className="chart__bar" style={{ height: tinggi }} />
-                  <span className="chart__x">{tanggalPendek(t.hari)}</span>
-                </div>
-              );
-            })}
+            <div className="chart__plot">
+              {d.tren.map((t) => {
+                // Tinggi dalam persen dari area plot: induknya punya tinggi pasti, jadi tidak runtuh.
+                const persen = Math.max(1.5, (Number(t.nilai) / puncak) * 100);
+                return (
+                  <div
+                    className="chart__col"
+                    key={t.hari}
+                    title={`${tanggalPendek(t.hari)} · ${rupiah(t.nilai)}`}
+                  >
+                    <div className="chart__bar" style={{ height: `${persen}%` }} />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="chart__axis">
+              {d.tren.map((t) => (
+                <span className="chart__x" key={t.hari}>
+                  {tanggalPendek(t.hari)}
+                </span>
+              ))}
+            </div>
           </div>
         </Panel>
 

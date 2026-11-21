@@ -41,17 +41,19 @@ export function Panel({
   judul,
   petunjuk,
   aksi,
+  kelas,
   children,
   padat = true,
 }: {
   judul: string;
   petunjuk?: string;
   aksi?: ReactNode;
+  kelas?: string;
   children: ReactNode;
   padat?: boolean;
 }) {
   return (
-    <section className="panel">
+    <section className={kelas ? `panel ${kelas}` : 'panel'}>
       <header className="panel__head">
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, minWidth: 0 }}>
           <span className="panel__title">{judul}</span>
