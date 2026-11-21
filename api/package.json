@@ -9,6 +9,7 @@
     "start": "tsx src/index.ts",
     "seed": "tsx src/seed.ts",
     "reset-password": "tsx src/reset-password.ts",
+    "add-user": "tsx src/add-user.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
