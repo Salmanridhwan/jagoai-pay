@@ -42,8 +42,28 @@ export const DUITKU_CHANNELS = (process.env.DUITKU_CHANNELS || 'SP,BR')
 // callback ke database jamy dan transaksi di sini tidak pernah lunas.
 export const DUITKU_CALLBACK_URL = process.env.DUITKU_CALLBACK_URL || '';
 
-// Gerbang gateway: ketiganya harus ada. Tanpa ini, hanya manual-transfer yang bisa dipakai.
-export const GATEWAY_SIAP = Boolean(DUITKU_MERCHANT_CODE && DUITKU_API_KEY && DUITKU_CALLBACK_URL);
+// ─── Jembatan ke jamy (mode utama sejak 2026-11-21) ─────────────────────────
+// Keputusan pemilik: pay TIDAK memegang kredensial Duitku dan tidak memanggil Duitku. Tagihan
+// dititipkan ke jamy (merchant Duitku yang callback-nya sudah terdaftar), lalu jamy memberi tahu
+// statusnya. DUITKU_* di atas hanya dipakai bila jembatan belum diisi (mode lama), supaya deployment
+// yang sudah jalan tidak mendadak mati.
+export const JAMY_BRIDGE_URL = (process.env.JAMY_BRIDGE_URL || '').replace(/\/+$/, '');
+export const JAMY_BRIDGE_KEY = process.env.JAMY_BRIDGE_KEY || '';
+// Token yang harus dibawa jamy saat memberi tahu perubahan status ke layanan ini.
+export const JAMY_BRIDGE_CALLBACK_TOKEN = process.env.JAMY_BRIDGE_CALLBACK_TOKEN || '';
+
+// jamy memanggil callback ini setelah status transaksi berubah. Kosong = hanya polling cron.
+export const BRIDGE_CALLBACK_PATH = '/api/jagoai-pay/v1/bridge/callback';
+
+export const BRIDGE_SIAP = Boolean(JAMY_BRIDGE_URL && JAMY_BRIDGE_KEY);
+
+export type GatewayMode = 'bridge' | 'duitku' | 'off';
+export const GATEWAY_MODE: GatewayMode = BRIDGE_SIAP
+  ? 'bridge'
+  : (DUITKU_MERCHANT_CODE && DUITKU_API_KEY && DUITKU_CALLBACK_URL ? 'duitku' : 'off');
+
+// Gerbang gateway: true bila salah satu jalur siap. Tanpa ini, hanya manual-transfer yang bisa dipakai.
+export const GATEWAY_SIAP = GATEWAY_MODE !== 'off';
 
 // Alamat publik CONSOLE (bukan API). Dipakai menyusun tautan halaman bayar yang dikirim ke aplikasi
 // klien, supaya pembeli melihat halaman milik console, bukan endpoint JSON.

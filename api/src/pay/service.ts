@@ -8,7 +8,8 @@
 // Duitku adalah payId itu sendiri (pendek dan unik). appOrderId milik aplikasi disimpan terpisah
 // dan TIDAK dipakai sebagai kunci apa pun.
 import { pool } from '../db';
-import { DUITKU_CALLBACK_URL, GATEWAY_SIAP, PAY_PUBLIC_BASE_URL } from '../env';
+import { DUITKU_CALLBACK_URL, GATEWAY_MODE, GATEWAY_SIAP, PAY_PUBLIC_BASE_URL } from '../env';
+import { buatTagihanDiJamy, daftarChannelJamy, statusTagihanDiJamy } from '../lib/bridge';
 import { getDuitkuConfig } from '../lib/duitkuConfig';
 import { fetchDuitkuChannels, grupChannel, pilihChannelUtama, type DuitkuChannel, type GrupChannel } from '../lib/duitkuChannels';
 import { checkDuitkuStatus, createDuitkuTransaction, verifyDuitkuCallback, type DuitkuCallbackBody } from '../lib/duitku';
@@ -133,6 +134,11 @@ function batasKedaluwarsa(grup: string | null, dimintaDetik: number): number {
 }
 
 async function daftarChannelTersedia(): Promise<DuitkuChannel[]> {
+  // Mode jembatan: daftar channel milik akun Duitku jamy (hanya jamy yang punya kredensial).
+  if (GATEWAY_MODE === 'bridge') {
+    const channels = await daftarChannelJamy();
+    return channels.map((c) => ({ code: c.code, name: c.name, fee: Number(c.fee) || 0 }));
+  }
   const cfg = await getDuitkuConfig();
   const hasil = await fetchDuitkuChannels(cfg);
   return hasil.channels;
@@ -179,7 +185,7 @@ export async function buatCharge(app: PayApp, input: CreateChargeInput): Promise
   if (String(input.channel || 'auto') !== CHANNEL_MANUAL && !GATEWAY_SIAP) {
     throw new PayError(
       'gateway_off',
-      'Gateway Duitku belum aktif di layanan ini. Isi DUITKU_MERCHANT_CODE, DUITKU_API_KEY, dan DUITKU_CALLBACK_URL milik layanan ini (bukan project akademi), atau pakai channel manual-transfer.',
+      'Gateway pembayaran belum aktif di layanan ini. Isi JAMY_BRIDGE_URL dan JAMY_BRIDGE_KEY (jembatan ke jamy) — atau jalur lama DUITKU_MERCHANT_CODE/DUITKU_API_KEY/DUITKU_CALLBACK_URL — lalu pakai channel manual-transfer selama gateway mati.',
       503,
     );
   }
@@ -235,19 +241,35 @@ export async function buatCharge(app: PayApp, input: CreateChargeInput): Promise
   }
 
   try {
-    const hasil = await createDuitkuTransaction({
-      merchantOrderId: payId,
-      amount,
-      email: input.customer?.email || 'noreply@jagoai.dev',
-      customerVaName: (input.customer?.name || app.name || 'Pembeli').slice(0, 60),
-      productDetails: String(input.description || `Tagihan ${app.code}`).slice(0, 200),
-      paymentMethod: kodeChannel,
-      returnUrl: `${PAY_PUBLIC_BASE_URL}/pay/${payId}`,
-      // Callback WAJIB milik layanan ini (env DUITKU_CALLBACK_URL). Jangan pernah mengarahkannya ke
-      // callback jamy: di sana tidak ada baris pay_charges untuk transaksi ini.
-      callbackUrl: DUITKU_CALLBACK_URL,
-      expiryPeriod: Math.max(1, Math.round(kedaluwarsaDetik / 60)),
-    });
+    // Dua jalur, tidak pernah bersamaan:
+    //   bridge -> jamy yang membuat transaksi di merchant Duitku miliknya (mode sejak 2026-11-21);
+    //   duitku -> jalur lama, layanan ini memegang kredensial sendiri.
+    // Bentuk hasilnya disamakan supaya satu UPDATE di bawah cukup.
+    const hasil = GATEWAY_MODE === 'bridge'
+      ? await buatTagihanDiJamy({
+        payId,
+        appCode: app.code,
+        amount,
+        channel: kodeChannel,
+        customerName: input.customer?.name || app.name || 'Pembeli',
+        customerEmail: input.customer?.email || '',
+        description: String(input.description || `Tagihan ${app.code}`).slice(0, 200),
+        expiresInSeconds: kedaluwarsaDetik,
+        returnUrl: `${PAY_PUBLIC_BASE_URL}/pay/${payId}`,
+      })
+      : await createDuitkuTransaction({
+        merchantOrderId: payId,
+        amount,
+        email: input.customer?.email || 'noreply@jagoai.dev',
+        customerVaName: (input.customer?.name || app.name || 'Pembeli').slice(0, 60),
+        productDetails: String(input.description || `Tagihan ${app.code}`).slice(0, 200),
+        paymentMethod: kodeChannel,
+        returnUrl: `${PAY_PUBLIC_BASE_URL}/pay/${payId}`,
+        // Callback WAJIB milik layanan ini (env DUITKU_CALLBACK_URL). Jangan pernah mengarahkannya ke
+        // callback jamy: di sana tidak ada baris pay_charges untuk transaksi ini.
+        callbackUrl: DUITKU_CALLBACK_URL,
+        expiryPeriod: Math.max(1, Math.round(kedaluwarsaDetik / 60)),
+      });
     await pool.query(
       `UPDATE pay_charges
           SET paymentUrl = ?, duitkuReference = ?, qrisString = COALESCE(?, qrisString),
@@ -256,9 +278,10 @@ export async function buatCharge(app: PayApp, input: CreateChargeInput): Promise
       [hasil.paymentUrl || null, hasil.reference || null, (hasil as any).qrString || null, (hasil as any).vaNumber || null, nowIso(), payId]
     );
   } catch (error: any) {
-    // Tagihan yang gagal dibuat di Duitku ditandai FAILED supaya appOrderId-nya bisa dipakai lagi.
+    // Tagihan yang gagal dibuat di gateway ditandai FAILED supaya appOrderId-nya bisa dipakai lagi.
     await transisi(payId, ['PENDING'], 'FAILED');
-    throw new PayError('duitku_down', error?.message || 'Gagal membuat transaksi di Duitku.', 503);
+    if (error instanceof PayError) throw error;
+    throw new PayError('gateway_down', error?.message || 'Gagal membuat transaksi di gateway pembayaran.', 503);
   }
 
   await terbitkan(app.code, payId, 'charge.created');
@@ -274,14 +297,27 @@ async function sinkronkan(row: any): Promise<any> {
   if (!Number.isFinite(umurDetik) || umurDetik < 60) return row;
 
   try {
-    const hasil = await checkDuitkuStatus(String(row.payId));
-    if (hasil.statusCode === '00') {
-      if (await transisi(String(row.payId), ['PENDING', 'REVIEW'], 'PAID')) await terbitkan(String(row.appCode), String(row.payId), 'charge.paid');
-    } else if (hasil.statusCode === '01') {
-      if (await transisi(String(row.payId), ['PENDING'], 'FAILED')) await terbitkan(String(row.appCode), String(row.payId), 'charge.failed');
+    if (GATEWAY_MODE === 'bridge') {
+      // jamy yang menanyakan Duitku: layanan ini tidak punya kredensial. Balasannya sudah berupa
+      // status pay (PAID/FAILED/PENDING), bukan statusCode mentah Duitku.
+      const hasil = await statusTagihanDiJamy(String(row.payId));
+      if (hasil.status === 'PAID') {
+        if (await transisi(String(row.payId), ['PENDING', 'REVIEW'], 'PAID')) await terbitkan(String(row.appCode), String(row.payId), 'charge.paid');
+      } else if (hasil.status === 'FAILED') {
+        if (await transisi(String(row.payId), ['PENDING'], 'FAILED')) await terbitkan(String(row.appCode), String(row.payId), 'charge.failed');
+      } else if (hasil.status === 'REJECTED') {
+        if (await transisi(String(row.payId), ['PENDING', 'PAID'], 'REJECTED')) await terbitkan(String(row.appCode), String(row.payId), 'charge.rejected');
+      }
+    } else {
+      const hasil = await checkDuitkuStatus(String(row.payId));
+      if (hasil.statusCode === '00') {
+        if (await transisi(String(row.payId), ['PENDING', 'REVIEW'], 'PAID')) await terbitkan(String(row.appCode), String(row.payId), 'charge.paid');
+      } else if (hasil.statusCode === '01') {
+        if (await transisi(String(row.payId), ['PENDING'], 'FAILED')) await terbitkan(String(row.appCode), String(row.payId), 'charge.failed');
+      }
     }
   } catch {
-    // Duitku tidak bisa dihubungi: biarkan PENDING, cron berikutnya mencoba lagi.
+    // Gateway tidak bisa dihubungi: biarkan PENDING, cron berikutnya mencoba lagi.
   }
   return (await ambilBaris(String(row.payId))) || row;
 }
@@ -371,6 +407,43 @@ export async function tanganiCallback(body: DuitkuCallbackBody): Promise<{ ok: b
     if (await transisi(payId, ['PENDING', 'REVIEW'], 'PAID')) await terbitkan(String(row.appCode), payId, 'charge.paid');
   } else if (await transisi(payId, ['PENDING'], 'FAILED')) {
     await terbitkan(String(row.appCode), payId, 'charge.failed');
+  }
+  return { ok: true, kode: 200 };
+}
+
+// Callback dari JEMBATAN jamy — BUKAN dari Duitku. Badan JSON sederhana ({ payId, status }), dan
+// keamanannya dari token bersama yang diperiksa di routes/v1.ts. Idempoten seperti callback Duitku:
+// status yang sudah final tidak pernah diturunkan, dan PAID hanya bisa dicapai dari PENDING/REVIEW.
+export async function tanganiBridgeCallback(body: {
+  payId?: string;
+  status?: string;
+  orderId?: string;
+  amount?: number;
+  reference?: string;
+  paidAt?: string;
+}): Promise<{ ok: boolean; kode: number }> {
+  const payId = String(body?.payId || '').trim();
+  const status = String(body?.status || '').toUpperCase();
+  if (!payId) return { ok: false, kode: 400 };
+
+  const row = await ambilBaris(payId);
+  if (!row) return { ok: false, kode: 404 };
+
+  // Nominal tidak boleh dipakai dari notifikasi: kalau berbeda, itu tanda notifikasi nyasar atau
+  // data rusak — lebih baik ditolak daripada mengubah tagihan dengan angka dari luar.
+  if (body?.amount !== undefined && Number(body.amount) !== Number(row.amount)) {
+    return { ok: false, kode: 409 };
+  }
+
+  const sekarang = String(row.status);
+  if (sekarang === 'PAID' || sekarang === 'REJECTED') return { ok: true, kode: 200 };
+
+  if (status === 'PAID') {
+    if (await transisi(payId, ['PENDING', 'REVIEW'], 'PAID')) await terbitkan(String(row.appCode), payId, 'charge.paid');
+  } else if (status === 'FAILED') {
+    if (await transisi(payId, ['PENDING'], 'FAILED')) await terbitkan(String(row.appCode), payId, 'charge.failed');
+  } else if (status === 'REJECTED') {
+    if (await transisi(payId, ['PENDING', 'PAID'], 'REJECTED')) await terbitkan(String(row.appCode), payId, 'charge.rejected');
   }
   return { ok: true, kode: 200 };
 }

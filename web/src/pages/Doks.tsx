@@ -78,7 +78,8 @@ const MASALAH: [string, string, string][] = [
   ['400', 'channel_unavailable', 'Channel tidak diizinkan untuk aplikasi ini atau tidak tersedia di akun gateway.'],
   ['403', 'forbidden', 'Aplikasi tidak punya izin memutuskan bukti (allowDecisions mati).'],
   ['409', 'charge_not_reviewable', 'Status tagihan sudah berubah sebelum keputusan dikirim.'],
-  ['503', 'gateway_off', 'Kredensial gateway belum diisi untuk layanan ini. Pakai manual-transfer sampai aktif.'],
+  ['503', 'gateway_off', 'Gateway belum tersambung: JAMY_BRIDGE_URL/JAMY_BRIDGE_KEY (atau kredensial Duitku lama) belum diisi. Pakai manual-transfer sampai aktif.'],
+  ['503', 'gateway_down', 'Jembatan pembayaran (jamy) atau gateway di baliknya sedang tidak bisa dihubungi. Tagihan ditandai gagal; ulangi beberapa saat lagi.'],
 ];
 
 export function Doks() {
@@ -246,8 +247,12 @@ export function Doks() {
             channel aplikasi dan di akun gateway.
           </li>
           <li>
-            Selama gateway belum aktif, permintaan channel gateway dijawab <span className="dok__kode">503 gateway_off</span>{' '}
-            — bukan berarti channel-nya salah.
+            Gateway dijalankan lewat jembatan ke jamy: layanan ini tidak menyimpan kredensial Duitku. Jamy membuat
+            transaksi di merchant akademi, lalu memberi tahu statusnya ke sini.
+          </li>
+          <li>
+            Selama jembatan belum diisi, permintaan channel gateway dijawab{' '}
+            <span className="dok__kode">503 gateway_off</span> — bukan berarti channel-nya salah.
           </li>
         </ul>
       </Blok>

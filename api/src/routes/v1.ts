@@ -4,9 +4,11 @@
 //
 // Kontrak lengkap: vault `Proyek/Kas Payment Service/Kas Payment Service.md` bagian
 // "Permukaan API v1" dan `Webhook Kontrak.md`.
+import crypto from 'crypto';
 import { Router } from 'express';
+import { JAMY_BRIDGE_CALLBACK_TOKEN } from '../env';
 import { apiKeyAuth, appDariRequest } from '../pay/apiKeyAuth';
-import { PayError, ambilCharge, ambilChargeDariOrder, buatCharge, daftarChannel, putuskanBukti, tanganiCallback, unggahBukti } from '../pay/service';
+import { PayError, ambilCharge, ambilChargeDariOrder, buatCharge, daftarChannel, putuskanBukti, tanganiBridgeCallback, tanganiCallback, unggahBukti } from '../pay/service';
 import { putarUlangDelivery } from '../pay/webhookOut';
 
 const router = Router();
@@ -91,6 +93,40 @@ router.post('/api/jagoai-pay/v1/duitku/callback', async (req, res) => {
   } catch (error: any) {
     console.error('[jagoai-pay] callback error:', error?.message || error);
     return res.status(500).send('Error');
+  }
+});
+
+// Token jembatan dibandingkan dengan waktu konstan: perbandingan string biasa membocorkan panjang
+// awalan yang cocok lewat waktu eksekusi.
+function tokenJembatanSah(diberikan: string): boolean {
+  const diharapkan = String(JAMY_BRIDGE_CALLBACK_TOKEN || '');
+  if (!diharapkan) return false; // token belum diisi = jembatan tidak boleh dipercaya
+  const a = Buffer.from(diberikan);
+  const b = Buffer.from(diharapkan);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+// POST /api/jagoai-pay/v1/bridge/callback — pemberitahuan status dari jembatan jamy.
+// BUKAN untuk aplikasi klien: pemanggilnya jamy, dengan token bersama. Ini pengganti callback Duitku
+// ketika gateway berjalan lewat jembatan (layanan ini tidak lagi memegang kredensial Duitku).
+router.post('/api/jagoai-pay/v1/bridge/callback', async (req, res) => {
+  try {
+    if (!tokenJembatanSah(String(req.header('x-jagoai-pay-token') || ''))) {
+      return res.status(401).json({ error: { code: 'unauthorized', message: 'Token jembatan tidak sah.' } });
+    }
+    const hasil = await tanganiBridgeCallback(req.body || {});
+    if (!hasil.ok) {
+      const peta: Record<number, { code: string; message: string }> = {
+        404: { code: 'not_found', message: 'Tagihan tidak ditemukan.' },
+        409: { code: 'amount_mismatch', message: 'Nominal di notifikasi tidak sama dengan tagihan.' },
+      };
+      const isi = peta[hasil.kode] || { code: 'validation', message: 'Notifikasi jembatan tidak valid.' };
+      return res.status(hasil.kode).json({ error: isi });
+    }
+    return res.json({ ok: true });
+  } catch (error: any) {
+    return balasError(res, error);
   }
 });
 
