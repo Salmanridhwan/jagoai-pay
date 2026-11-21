@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, type Saya } from './api';
 import { Shell } from './components/Shell';
 import { Login } from './pages/Login';
-import { Ikhtisar } from './pages/Ikhtisar';
+import { Dashboard } from './pages/Dashboard';
 import { Tagihan } from './pages/Tagihan';
 import { Aplikasi } from './pages/Aplikasi';
 import { Webhook } from './pages/Webhook';
@@ -93,7 +93,7 @@ export default function App() {
       onKeluar={keluar}
     >
       <Routes>
-        <Route path="/" element={<Ikhtisar />} />
+        <Route path="/" element={<Dashboard />} />
         <Route path="/tagihan" element={<Tagihan />} />
         <Route path="/aplikasi" element={<Aplikasi />} />
         <Route path="/webhook" element={<Webhook />} />

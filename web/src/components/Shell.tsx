@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import type { Saya } from '../api';
 
 const MENU = [
-  { ke: '/', label: 'Ikhtisar', ikon: Activity },
+  { ke: '/', label: 'Dashboard', ikon: Activity },
   { ke: '/tagihan', label: 'Tagihan', ikon: Receipt },
   { ke: '/aplikasi', label: 'Aplikasi', ikon: AppWindow },
   { ke: '/webhook', label: 'Webhook', ikon: Webhook },
@@ -12,7 +12,7 @@ const MENU = [
 ];
 
 const JEJAK: Record<string, string> = {
-  '/': 'Ikhtisar',
+  '/': 'Dashboard',
   '/tagihan': 'Tagihan',
   '/aplikasi': 'Aplikasi',
   '/webhook': 'Webhook',

@@ -346,7 +346,7 @@ if (Math.abs(Date.now() / 1000 - Number(bagianT)) > 300) return res.status(401).
             </thead>
             <tbody>
               <tr>
-                <td className="id">Ikhtisar</td>
+                <td className="id">Dashboard</td>
                 <td>Uang masuk, tagihan menunggu keputusan, event yang gagal, tren 14 hari.</td>
               </tr>
               <tr>

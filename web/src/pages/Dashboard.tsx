@@ -12,7 +12,7 @@ const WARNA_STATUS: Record<string, string> = {
   REJECTED: 'var(--danger)',
 };
 
-export function Ikhtisar() {
+export function Dashboard() {
   const nav = useNavigate();
   const ringkas = useQuery({ queryKey: ['ringkasan'], queryFn: api.ringkasan });
   const terbaru = useQuery({
@@ -20,8 +20,8 @@ export function Ikhtisar() {
     queryFn: () => api.charges({ limit: 8 }),
   });
 
-  if (ringkas.isLoading) return <div className="empty">Memuat ikhtisar…</div>;
-  if (ringkas.error || !ringkas.data) return <div className="empty">Gagal memuat ikhtisar.</div>;
+  if (ringkas.isLoading) return <div className="empty">Memuat dashboard…</div>;
+  if (ringkas.error || !ringkas.data) return <div className="empty">Gagal memuat dashboard.</div>;
 
   const d = ringkas.data;
   const puncak = Math.max(...d.tren.map((t) => Number(t.nilai) || 0), 1);
@@ -34,7 +34,7 @@ export function Ikhtisar() {
     <>
       <div className="page__head">
         <div>
-          <h1 className="page__title">Ikhtisar</h1>
+          <h1 className="page__title">Dashboard</h1>
           <p className="page__sub">Uang masuk, tagihan menunggu, dan event yang gagal.</p>
         </div>
         <div className="toolbar">
