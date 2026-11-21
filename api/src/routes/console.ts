@@ -13,6 +13,7 @@ import { putarUlangDelivery } from '../pay/webhookOut';
 import { hashApiKey } from '../pay/ids';
 import { appDariBaris } from '../pay/appRow';
 import type { PayApp } from '../pay/apiKeyAuth';
+import { channelsUntukCheckout, grupChannel, namaChannel } from '../lib/duitkuChannels';
 
 const router = Router();
 
@@ -265,6 +266,26 @@ router.post('/charges/:payId/decision', wajibOperator, async (req, res) => {
     const status = Number(e?.status) || 500;
     console.error('[console] keputusan gagal:', e?.message || e);
     return res.status(status).json({ error: e?.message || 'Gagal memproses keputusan.' });
+  }
+});
+
+// GET /api/console/channels — channel yang boleh dicentang saat mendaftarkan app.
+// Bentuknya sengaja ramah layar: kode + nama + grup, bukan "SP,BR,OV" yang harus dihafal operator.
+router.get('/channels', async (_req, res) => {
+  try {
+    const daftar = await channelsUntukCheckout();
+    // Saat gateway belum dikonfigurasi, Duitku tidak bisa ditanya dan daftar kembali hanya berisi kode
+    // (name === code). Ambil label dari katalog bawaan supaya yang dicentang operator terbaca
+    // "BRI Virtual Account", bukan "BR".
+    return res.json({
+      rows: daftar.map((c) => {
+        const name = c.name && c.name !== c.code ? c.name : namaChannel(c.code);
+        return { code: c.code, name, grup: grupChannel({ code: c.code, name }), fee: c.fee };
+      }),
+    });
+  } catch (e: any) {
+    console.error('[console] daftar channel gagal:', e?.message || e);
+    return res.status(500).json({ error: 'Gagal memuat daftar channel.' });
   }
 });
 

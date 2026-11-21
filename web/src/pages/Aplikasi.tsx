@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { Copy, KeyRound, Plus, Webhook } from 'lucide-react';
 import { api, ApiError, rupiah, waktu, type App } from '../api';
 import { Chip, Panel } from '../components/ui';
@@ -8,24 +9,59 @@ function salin(teks: string) {
   navigator.clipboard?.writeText(teks).catch(() => {});
 }
 
+// Kode aplikasi dibentuk dari nama supaya operator tidak perlu mengarang sendiri: "Kasir Utama"
+// menjadi "kasir-utama". Aturannya sama dengan validasi di API (2-32 huruf kecil/angka/strip),
+// jadi yang tampil di sini tidak mungkin ditolak server karena bentuk kode.
+function jadikanKode(teks: string) {
+  return teks
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32);
+}
+
+const KODE_VALID = /^[a-z0-9][a-z0-9-]{1,31}$/;
+
 export function Aplikasi() {
   const qc = useQueryClient();
   const apps = useQuery({ queryKey: ['apps'], queryFn: api.apps });
+  const daftar = useQuery({ queryKey: ['channel-console'], queryFn: api.channels, staleTime: 5 * 60_000 });
 
-  const [kode, setKode] = useState('');
   const [nama, setNama] = useState('');
-  const [channel, setChannel] = useState('SP,BR');
+  const [kode, setKode] = useState('');
+  const [kodeDisentuh, setKodeDisentuh] = useState(false);
+  const [pilih, setPilih] = useState<string[] | null>(null);
   const [hook, setHook] = useState('');
   const [kunciBaru, setKunciBaru] = useState<{ label: string; kunci: string; secret?: string } | null>(null);
 
+  const rows = daftar.data?.rows || [];
+  const namaChannel = (code: string) => rows.find((c) => c.code === code)?.name || code;
+
+  // Pilihan awal: QRIS + satu virtual account yang memang ada di akun. `null` = belum disentuh
+  // operator — kalau operator sengaja mengosongkan semua centang, jangan diisi ulang otomatis.
+  useEffect(() => {
+    if (pilih !== null || rows.length === 0) return;
+    const mau = ['SP', 'BR'].filter((c) => rows.some((r) => r.code === c));
+    setPilih(mau.length ? mau : [rows[0].code]);
+  }, [rows, pilih]);
+
+  const aktif = pilih || [];
+  const ubahPilih = (code: string) =>
+    setPilih(aktif.includes(code) ? aktif.filter((c) => c !== code) : [...aktif, code]);
+
   const buat = useMutation({
     mutationFn: () =>
-      api.buatApp({ code: kode.trim().toLowerCase(), name: nama.trim(), channels: channel, webhookUrl: hook.trim() }),
+      api.buatApp({ code: kode.trim().toLowerCase(), name: nama.trim(), channels: aktif.join(','), webhookUrl: hook.trim() }),
     onSuccess: (r: any) => {
       setKunciBaru({ label: `Kunci API ${r.code}`, kunci: r.apiKey, secret: r.webhookSecret });
-      setKode('');
       setNama('');
+      setKode('');
+      setKodeDisentuh(false);
       setHook('');
+      setPilih(null);
+      buat.reset();
       qc.invalidateQueries({ queryKey: ['apps'] });
     },
   });
@@ -39,13 +75,15 @@ export function Aplikasi() {
   });
 
   const galat = (buat.error || putar.error) as ApiError | null;
+  const kodeSalah = kode.length > 0 && !KODE_VALID.test(kode.trim().toLowerCase());
+  const bisaSimpan = nama.trim().length > 0 && KODE_VALID.test(kode.trim().toLowerCase()) && aktif.length > 0 && !buat.isPending;
 
   return (
     <>
       <div className="page__head">
         <div>
           <h1 className="page__title">Aplikasi</h1>
-          <p className="page__sub">Kunci API, channel, dan URL webhook tiap aplikasi.</p>
+          <p className="page__sub">Satu aplikasi, satu kunci API.</p>
         </div>
       </div>
 
@@ -80,7 +118,7 @@ export function Aplikasi() {
             <thead>
               <tr>
                 <th>Aplikasi</th>
-                <th>Kunci</th>
+                <th>Kunci API</th>
                 <th>Channel</th>
                 <th>Webhook</th>
                 <th style={{ textAlign: 'right' }}>Tagihan</th>
@@ -97,7 +135,18 @@ export function Aplikasi() {
                     <div className="panel__hint num">{a.code}</div>
                   </td>
                   <td className="num" style={{ fontSize: 11.5 }}>{a.apiKeyPrefix}…</td>
-                  <td className="num" style={{ fontSize: 11.5 }}>{a.allowedChannels}</td>
+                  <td>
+                    <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
+                      {a.allowedChannels
+                        .split(',')
+                        .filter(Boolean)
+                        .map((c) => (
+                          <span key={c} className="chip" title={namaChannel(c)}>
+                            {c}
+                          </span>
+                        ))}
+                    </span>
+                  </td>
                   <td>
                     {a.webhookUrl ? (
                       <span className="panel__hint num" style={{ wordBreak: 'break-all' }}>{a.webhookUrl}</span>
@@ -128,57 +177,115 @@ export function Aplikasi() {
         </div>
       </Panel>
 
-      <Panel judul="Daftarkan aplikasi" petunjuk="kunci dibuat otomatis">
-        <div className="toolbar" style={{ alignItems: 'flex-end', gap: 10 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label className="panel__hint">kode</label>
-            <span className="field">
-              <input value={kode} onChange={(e) => setKode(e.target.value)} placeholder="kasir-utama" />
-            </span>
+      <Panel judul="Daftarkan aplikasi" petunjuk="kunci API dibuat otomatis">
+        <form
+          className="form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (bisaSimpan) buat.mutate();
+          }}
+        >
+          <div className="form__dua">
+            <div className="form__field">
+              <label className="form__label" htmlFor="app-nama">Nama aplikasi</label>
+              <span className="field field--grow">
+                <input
+                  id="app-nama"
+                  value={nama}
+                  placeholder="Kasir Utama"
+                  onChange={(e) => {
+                    setNama(e.target.value);
+                    if (!kodeDisentuh) setKode(jadikanKode(e.target.value));
+                  }}
+                />
+              </span>
+              <span className="form__hint">Nama yang tampil besar di daftar atas.</span>
+            </div>
+
+            <div className="form__field">
+              <label className="form__label" htmlFor="app-kode">Kode aplikasi</label>
+              <span className="field" style={{ maxWidth: 280 }}>
+                <input
+                  id="app-kode"
+                  className="num"
+                  value={kode}
+                  placeholder="kasir-utama"
+                  spellCheck={false}
+                  onChange={(e) => {
+                    setKodeDisentuh(true);
+                    setKode(jadikanKode(e.target.value));
+                  }}
+                />
+              </span>
+              <span className="form__hint">
+                {kodeSalah
+                  ? 'Pakai huruf kecil, angka, atau strip (2-32 karakter).'
+                  : 'Terbentuk otomatis dari nama. Dipakai di API dan laporan.'}
+              </span>
+            </div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label className="panel__hint">nama</label>
-            <span className="field">
-              <input value={nama} onChange={(e) => setNama(e.target.value)} placeholder="Kasir Utama" />
-            </span>
+
+          <div className="form__field">
+            <span className="form__label">Channel yang boleh dipakai</span>
+            <div className="pick" role="group" aria-label="Channel yang boleh dipakai">
+              {rows.map((c) => (
+                <button
+                  key={c.code}
+                  type="button"
+                  className="pick__item"
+                  aria-pressed={aktif.includes(c.code)}
+                  onClick={() => ubahPilih(c.code)}
+                >
+                  <span className="pick__kode">{c.code}</span>
+                  {c.name}
+                </button>
+              ))}
+              {daftar.isLoading ? <span className="form__hint">memuat channel…</span> : null}
+              {!daftar.isLoading && rows.length === 0 ? (
+                <span className="form__hint">Daftar channel tidak terbaca. Isi lewat API bila mendesak.</span>
+              ) : null}
+            </div>
+            <span className="form__hint">Boleh lebih dari satu — ini yang muncul sebagai pilihan di halaman bayar.</span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label className="panel__hint">channel</label>
-            <span className="field">
-              <input value={channel} onChange={(e) => setChannel(e.target.value.toUpperCase())} size={10} />
-            </span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1, minWidth: 240 }}>
-            <label className="panel__hint">url webhook</label>
+
+          <div className="form__field">
+            <label className="form__label" htmlFor="app-hook">
+              URL webhook <em>opsional</em>
+            </label>
             <span className="field field--grow">
               <Webhook size={14} strokeWidth={1.8} style={{ color: 'var(--muted)' }} />
-              <input value={hook} onChange={(e) => setHook(e.target.value)} placeholder="https://app.example/hook" />
+              <input
+                id="app-hook"
+                value={hook}
+                placeholder="https://aplikasi-anda.com/hook"
+                onChange={(e) => setHook(e.target.value)}
+              />
+            </span>
+            <span className="form__hint">
+              Boleh dikosongkan — di daftar nanti bertanda "tanpa URL" dan notifikasi tidak dikirim.
             </span>
           </div>
-          <button
-            className="btn btn--pos"
-            disabled={buat.isPending || kode.trim().length < 2 || !nama.trim()}
-            onClick={() => buat.mutate()}
-          >
-            <Plus size={15} strokeWidth={2} /> Daftarkan
-          </button>
-        </div>
-        {galat ? <div className="gate__err" style={{ marginTop: 10 }}>{galat.message}</div> : null}
-        {buat.isSuccess ? (
-          <div className="panel__hint" style={{ marginTop: 10 }}>
-            Aplikasi dibuat. Berikan kunci di atas ke pemilik aplikasi lewat kanal aman.
+
+          <div className="form__kaki">
+            <span className="form__hint">
+              Akan tampil sebagai <strong>{nama.trim() || 'Nama aplikasi'}</strong> —{' '}
+              <span className="num">{kode.trim() || 'kode-app'}</span>
+              {aktif.length ? ` · channel ${aktif.join(', ')}` : ' · channel belum dipilih'}
+            </span>
+            <button className="btn btn--pos" type="submit" disabled={!bisaSimpan}>
+              <Plus size={15} strokeWidth={2} /> Daftarkan
+            </button>
           </div>
-        ) : null}
+
+          {galat ? <div className="gate__err">{galat.message}</div> : null}
+        </form>
       </Panel>
 
-      <Panel judul="Cara memakai" petunjuk="contoh permintaan">
-        <div className="mono-block">{`curl -X POST http://localhost:4010/api/jagoai-pay/v1/charges \\
-  -H "X-JagoaiPay-Key: jgp_..." \\
-  -H "Content-Type: application/json" \\
-  -d '{"appOrderId":"INV-001","amount":99000,"channel":"manual-transfer"}'`}</div>
-        <p className="panel__hint" style={{ marginTop: 10 }}>
-          Endpoint daftar channel: <span className="num">GET /api/jagoai-pay/v1/channels</span>. Verifikasi webhook
-          memakai HMAC-SHA256 atas <span className="num">timestamp.body</span> dengan secret aplikasi.
+      <Panel judul="Cara memakai" petunjuk="rinciannya di Doks">
+        <p className="panel__hint">
+          Contoh permintaan, arti tiap status, daftar event webhook, dan cara memverifikasi tanda tangan ada di{' '}
+          <Link to="/doks" style={{ color: 'var(--pos)' }}>Doks</Link> — di sana ada tombol "Salin semua" untuk
+          diberikan ke agen/AI.
         </p>
       </Panel>
     </>

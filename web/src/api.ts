@@ -84,6 +84,8 @@ export type App = {
   terakhircharge?: string | null;
 };
 
+export type Channel = { code: string; name: string; grup: string; fee: number };
+
 export type Delivery = {
   deliveryId: string;
   appCode: string;
@@ -179,6 +181,7 @@ export const api = {
     }),
 
   apps: () => minta<{ rows: App[] }>('/api/console/apps'),
+  channels: () => minta<{ rows: Channel[] }>('/api/console/channels'),
 
   buatApp: (body: { code: string; name: string; channels: string; webhookUrl?: string }) =>
     minta<{ app: App; apiKey: string }>('/api/console/apps', { method: 'POST', body: JSON.stringify(body) }),
