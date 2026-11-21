@@ -41,12 +41,19 @@ router.get('/summary', async (_req, res) => {
       FROM pay_charges
     `);
 
-    const [hariIni]: any = await pool.query(
-      `SELECT COUNT(*) AS jumlah,
-              COALESCE(SUM(CASE WHEN status = 'PAID' THEN amount ELSE 0 END), 0) AS nilaipaid
-       FROM pay_charges WHERE substr(createdAt, 1, 10) = ?`,
-      [new Date().toISOString().slice(0, 10)],
-    );
+    // "Hari ini" = hari kalender WIB, dan yang dihitung adalah tagihan yang DIBAYAR hari ini (paidAt),
+    // bukan yang dibuat hari ini. Versi lama memakai createdAt sehingga pemasukan tercatat di tanggal
+    // tagihan dibuat — tagihan kemarin yang dibayar pagi ini tidak masuk, tagihan hari ini yang dibayar
+    // besok sudah dihitung duluan.
+    const [hariIni]: any = await pool.query(`
+      SELECT COUNT(*) AS jumlah,
+             COALESCE(SUM(amount), 0) AS nilaipaid
+      FROM pay_charges
+      WHERE status = 'PAID'
+        AND paidAt <> ''
+        AND to_char(nullif(paidAt, '')::timestamptz AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM-DD')
+            = to_char(now() AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM-DD')
+    `);
 
     const [apps]: any = await pool.query(`
       SELECT COUNT(*) AS jumlah,
@@ -68,14 +75,20 @@ router.get('/summary', async (_req, res) => {
     const [tren]: any = await pool.query(
       `WITH hari AS (
          SELECT to_char(g, 'YYYY-MM-DD') AS hari
-         FROM generate_series((CURRENT_DATE - INTERVAL '13 day')::date, CURRENT_DATE::date, INTERVAL '1 day') g
+         FROM generate_series(
+                ((now() AT TIME ZONE 'Asia/Jakarta')::date - INTERVAL '13 day')::date,
+                (now() AT TIME ZONE 'Asia/Jakarta')::date,
+                INTERVAL '1 day') g
        )
        SELECT h.hari,
               COUNT(c.payid) AS jumlah,
-              COUNT(c.payid) FILTER (WHERE c.status = 'PAID') AS paid,
-              COALESCE(SUM(CASE WHEN c.status = 'PAID' THEN c.amount ELSE 0 END), 0) AS nilai
+              COUNT(c.payid) AS paid,
+              COALESCE(SUM(c.amount), 0) AS nilai
        FROM hari h
-       LEFT JOIN pay_charges c ON substr(c.createdat, 1, 10) = h.hari
+       LEFT JOIN pay_charges c
+         ON c.status = 'PAID'
+        AND c.paidAt <> ''
+        AND to_char(nullif(c.paidAt, '')::timestamptz AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM-DD') = h.hari
        GROUP BY h.hari
        ORDER BY h.hari ASC`,
     );
