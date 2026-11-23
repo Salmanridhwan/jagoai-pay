@@ -79,3 +79,38 @@ timestamp lebih tua dari 5 menit.
   halaman Webhook.
 - Data contoh memakai URL webhook `http://localhost:4010/__contoh-hook/...` supaya tidak ada trafik
   keluar ke sistem siapa pun saat mencoba.
+
+## Menayangkan di produksi (satu asal)
+
+Satu proses melayani tiga hal: `/api/*` (API), berkas statis `web/dist` (console React), dan
+`index.html` untuk semua rute console termasuk `/pay/:payId`. Karena satu asal, tidak ada CORS,
+tidak ada cookie lintas domain, dan satu sertifikat.
+
+```bash
+npm install          # postinstall memasang dependensi api/ dan web/
+npm run build        # menghasilkan web/dist
+npm start            # API + console di PORT (bawaan 4010)
+```
+
+`api/src/loadEnv.ts` membaca `.env` di akar repo lebih dulu, lalu `api/.env`. Panel menaruh `.env`
+di akar; nilai dari panel menang karena dotenv tidak menimpa env yang sudah ada.
+
+Env minimum di produksi:
+
+```
+NODE_ENV=production
+HOST=0.0.0.0                 # panel meneruskan lewat reverse proxy
+PORT=<port dari panel>
+DATABASE_URL=postgres://...  # Postgres milik layanan ini, BUKAN jago_ai_school
+PUBLIC_BASE_URL=https://pay.jagoai.dev
+PAY_PUBLIC_BASE_URL=https://pay.jagoai.dev
+CORS_ORIGINS=https://pay.jagoai.dev
+JAMY_BRIDGE_URL=https://academy.jagoai.dev
+JAMY_BRIDGE_KEY=...          # sama dengan PAY_BRIDGE_KEY di jamy
+JAMY_BRIDGE_CALLBACK_TOKEN=... # sama dengan PAY_BRIDGE_CALLBACK_TOKEN di jamy
+SEED_CONSOLE_EMAIL=...       # akun console pertama, dibuat saat boot pertama
+SEED_CONSOLE_PASSWORD=...
+```
+
+Di produksi `NODE_ENV=production` membuat cookie sesi `Secure` (wajib HTTPS). Akun console
+berikutnya ditambah lewat `npm run add-user -- <email> <sandi> [nama] [owner|viewer]`.

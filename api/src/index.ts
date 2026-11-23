@@ -5,8 +5,11 @@
 //   /api/jagoai-pay/v1/*  → dipanggil aplikasi klien dengan kunci app (X-JagoaiPay-Key)
 //   /api/console/*        → console manusia, sesi cookie
 //   /api/public/*         → halaman bayar pembeli, tanpa kunci
-import 'dotenv/config';
+import './loadEnv';
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import helmet from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -56,6 +59,19 @@ app.use(v1Routes);
 app.use(authRoutes);
 app.use('/api/console', consoleRoutes);
 app.use(publicRoutes);
+
+// Console operator dan halaman bayar disajikan proses yang sama, satu asal dengan API: tidak ada
+// CORS, tidak ada cookie lintas domain, dan satu sertifikat. Di dev, Vite yang menyajikan console
+// (:4020) dan mem-proxy /api ke sini; di produksi, `web/dist` hasil `npm run build` disajikan di sini.
+const WEB_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/dist');
+if (fs.existsSync(path.join(WEB_DIST, 'index.html'))) {
+  app.use(express.static(WEB_DIST, { index: false, maxAge: '1h' }));
+  // Semua jalur selain API/berkas statis adalah rute console (React Router), jadi dikembalikan
+  // ke index.html — termasuk /pay/:payId yang dibuka pembeli dari tautan tagihan.
+  app.get(/^\/(?!api\/|health$|proofs\/).*/, (_req, res) => res.sendFile(path.join(WEB_DIST, 'index.html')));
+} else {
+  console.log('[index] web/dist belum ada — hanya API yang dilayani (dev: Vite di :4020)');
+}
 
 app.use((_req, res) => res.status(404).json({ error: 'Rute tidak ditemukan.' }));
 

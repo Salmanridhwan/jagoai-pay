@@ -3,8 +3,12 @@
 // punya env sendiri, jadi tidak ada jalur "admin menempel kunci" yang harus ikut dipindahkan.
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
 
-const ROOT = path.resolve(process.cwd());
+// Akar layanan (folder `api/`), dihitung dari berkas ini — bukan dari cwd. Proses produksi
+// dijalankan dari akar repo supaya `web/dist` terjangkau, dan tanpa ini folder `var/` (bukti
+// transfer) akan berpindah ke akar repo hanya karena cara proses dijalankan.
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const varDir = path.join(ROOT, 'var');
 if (!fs.existsSync(varDir)) fs.mkdirSync(varDir, { recursive: true });
 

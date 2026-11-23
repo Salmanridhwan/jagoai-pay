@@ -1,0 +1,20 @@
+{
+  "name": "jagoai-pay",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Layanan pembayaran mandiri JagoAI Pay — API + console + halaman bayar, satu asal, basis data sendiri.",
+  "scripts": {
+    "postinstall": "npm --prefix api install --no-audit --no-fund && npm --prefix web install --no-audit --no-fund",
+    "build": "npm --prefix web run build",
+    "start": "node api/node_modules/tsx/dist/cli.mjs api/src/index.ts",
+    "typecheck": "npm --prefix api run typecheck && npm --prefix web run typecheck",
+    "seed": "npm --prefix api run seed",
+    "add-user": "npm --prefix api run add-user --",
+    "reset-password": "npm --prefix api run reset-password --",
+    "dev:api": "npm --prefix api run dev",
+    "dev:web": "npm --prefix web run dev"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
